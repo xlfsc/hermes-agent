@@ -12,6 +12,8 @@ __pycache__/
 .env.production.local
 .env.development
 .env.test
+.idea
+.claude
 export*
 __pycache__/model_tools.cpython-310.pyc
 __pycache__/web_tools.cpython-310.pyc

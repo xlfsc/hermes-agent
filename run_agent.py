@@ -264,6 +264,8 @@ _PARALLEL_SAFE_TOOLS = frozenset({
     "ha_get_state",
     "ha_list_entities",
     "ha_list_services",
+    "mcp_solver_solve_math_problem",
+    "mcp_solver_verify_analysis",
     "read_file",
     "search_files",
     "session_search",

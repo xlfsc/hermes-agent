@@ -1,0 +1,23 @@
+# Math Solver Agent — runtime dependencies
+#
+# 用法（在仓库根执行）：
+#     python -m venv .venv
+#     .venv/Scripts/python.exe -m pip install -r solver_agent/requirements.txt
+#
+# 这一份覆盖：
+#   1. Hermes 主仓本身（editable install，从父目录读 pyproject.toml）
+#   2. solver_agent/api.py 的 FastAPI 服务端
+#   3. solver_agent/solver_mcp_server.py（MCP server）所用 SDK
+
+# Hermes core（含 openai/anthropic/mcp/aiohttp/pydantic/pyyaml/...）
+-e ..
+
+# FastAPI 服务端（hermes 核心未必引入）
+fastapi==0.136.1
+uvicorn[standard]>=0.30
+pydantic==2.13.3
+
+# MCP SDK — solver_mcp_server.py 自身要 import mcp.server
+# (hermes core 也会引入相同/兼容版本，这里显式钉一份做防御)
+mcp==1.27.0
+asgi-correlation-id>=3.0.0

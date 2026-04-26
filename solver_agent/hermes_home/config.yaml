@@ -1,0 +1,64 @@
+# 解题 Agent 隔离配置 — 不污染用户 ~/.hermes/config.yaml
+# 由 solver_agent/solver.py 在导入 hermes 前设置 HERMES_HOME 指向本目录的父目录。
+
+model:
+  default: gemma4
+  provider: custom
+  base_url: http://172.168.80.17:3001/v1/
+  context_length: 131072  # 128K — 端点 /v1/models 不暴露窗口大小，显式设定避免 256K 兜底警告
+
+custom_providers:
+  - name: "172.168.80.17:3001"
+    base_url: http://172.168.80.17:3001/v1/
+    api_key: mysecurekey123
+    model: gemma4
+
+providers:
+  custom:
+    request_timeout_seconds: 600
+
+mcp_servers:
+  solver:
+    command: E:\lab\trunk\hermes-agent\.venv\Scripts\python.exe
+    args:
+      - E:\lab\trunk\hermes-agent\solver_agent\solver_mcp_server.py
+    env:
+      SOLVER_API_BASE: http://172.168.80.46:8000
+      SOLVER_SOLVE_TIMEOUT: '600'
+      SOLVER_VERIFY_TIMEOUT: '300'
+    timeout: 660
+    connect_timeout: 30
+
+skills:
+  external_dirs:
+    - "${SOLVER_AGENT_SKILLS_DIR}"
+
+default_skills:
+  - multi-model-math-solving
+
+platform_toolsets:
+  cli: [skills, terminal, file]
+
+agent:
+  max_turns: 40
+  reasoning_effort: medium
+  verbose: false
+
+memory:
+  memory_enabled: false
+  user_profile_enabled: false
+
+compression:
+  enabled: true
+  threshold: 0.50
+  target_ratio: 0.20
+  protect_last_n: 20
+
+display:
+  compact: true
+  tool_progress: off
+  streaming: false
+
+skills_config:
+  template_vars: true
+  inline_shell: false

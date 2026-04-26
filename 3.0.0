@@ -1,0 +1,7 @@
+Looking in indexes: http://172.20.253.223:16321/repository/python-group/simple/, https://mirrors.aliyun.com/pypi/simple/, https://mirror.baidu.com/pypi/simple/, https://pypi.mirrors.ustc.edu.cn/simple/, https://mirrors.cloud.tencent.com/pypi/simple
+Requirement already satisfied: asgi-correlation-id in .\.venv\Lib\site-packages (4.3.4)
+Requirement already satisfied: packaging in .\.venv\Lib\site-packages (from asgi-correlation-id) (26.2)
+Requirement already satisfied: starlette>=0.18 in .\.venv\Lib\site-packages (from asgi-correlation-id) (1.0.0)
+Requirement already satisfied: anyio<5,>=3.6.2 in .\.venv\Lib\site-packages (from starlette>=0.18->asgi-correlation-id) (4.13.0)
+Requirement already satisfied: typing-extensions>=4.10.0 in .\.venv\Lib\site-packages (from starlette>=0.18->asgi-correlation-id) (4.15.0)
+Requirement already satisfied: idna>=2.8 in .\.venv\Lib\site-packages (from anyio<5,>=3.6.2->starlette>=0.18->asgi-correlation-id) (3.13)
