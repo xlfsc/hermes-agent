@@ -42,7 +42,8 @@ platform_toolsets:
 
 agent:
   max_turns: 40
-  reasoning_effort: none
+  thinking: disabled
+  reasoning_effort: low
   verbose: false
 
 memory:
