@@ -26,6 +26,7 @@ class SolveResponse(BaseModel):
     answer: str
     elapsed_seconds: float
     model: str
+    trace_id: str
 
 
 @app.get("/health")

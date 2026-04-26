@@ -16,6 +16,7 @@ custom_providers:
 providers:
   custom:
     request_timeout_seconds: 600
+    stale_timeout_seconds: 600
 
 mcp_servers:
   solver:
@@ -41,7 +42,7 @@ platform_toolsets:
 
 agent:
   max_turns: 40
-  reasoning_effort: medium
+  reasoning_effort: none
   verbose: false
 
 memory:

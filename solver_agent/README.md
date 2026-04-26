@@ -14,6 +14,7 @@ solver_agent/
 │   └── config.yaml                       # 隔离配置：mcp_servers / custom_providers / default_skills
 ├── skills/
 │   └── multi-model-math-solving/SKILL.md # 解题流程 skill
+├── traces/                               # 每次请求的全链路 trace JSON（自动生成）
 ├── api.py                                # FastAPI 应用：POST /solve、GET /health
 ├── logging.yaml                          # 服务端日志配置
 ├── run_server.py                         # 启动入口
@@ -166,9 +167,12 @@ curl http://localhost:8765/health
 {
   "answer": "...",            // 最终自然语言解析
   "elapsed_seconds": 87.4,
-  "model": "gemma4"
+  "model": "gemma4",
+  "trace_id": "trc_a1b2c3d4e5f6"
 }
 ```
+
+> `trace_id` 对应 `solver_agent/traces/<trace_id>.json`，包含完整的事件时间线和原始对话记录，可用于还原解题/校验/修正全过程。
 
 > ⚠️ **单题耗时 1–10 分钟**（三模型并行 + 交叉验证 + 可能的迭代修正）。HTTP 客户端务必把读取超时拉到 ≥ 600s。
 
@@ -240,7 +244,31 @@ console.log((await r.json()).answer);
 
 ---
 
-## 8. 已知约束 / 后续扩展
+## 8. Trace 全链路追踪
+
+每次 `/solve` 请求会自动在 `solver_agent/traces/` 下生成一份 JSON 文件（无论 `quiet` 是否为 `true`）。
+
+文件名格式：`trc_<12位hex>.json`，与响应里的 `trace_id` 对应。
+
+trace 文件包含：
+
+| 字段 | 说明 |
+|------|------|
+| `request` | 原始请求参数（题目、模型、provider） |
+| `result` | 最终答案、耗时、token 用量 |
+| `events` | 按时间排序的回调事件流：`tool_start` / `tool_complete` / `step` / `status` / `text` / `clarify` |
+| `messages` | AIAgent 完整对话记录（user / assistant / tool 所有角色的原始消息） |
+
+排查示例：
+- 看 `events` 里的 `tool_start` / `tool_complete` 配对，确认三模型是否并行、各自耗时多少
+- 看 `messages` 里 tool role 的 content，拿到每个模型的完整解析和验证结果
+- 看 `events` 里的 `status` 事件，定位 ReadTimeout / 重连等异常
+
+trace 目录可通过 `SOLVER_TRACE_DIR` 环境变量覆盖。
+
+---
+
+## 9. 已知约束 / 后续扩展
 
 - **单轮 + 同步**：当前接口不流式、不维护多轮上下文。如需，建议加 `POST /sessions` + `POST /sessions/{id}/turn` 走 SSE。
 - **无鉴权**：内网部署直接用；若要外网暴露，加一个 `Depends(check_api_key)` 校验 `Authorization` 头即可。
