@@ -5,7 +5,6 @@ model:
   default: gemma4
   provider: custom
   base_url: http://172.168.80.17:3001/v1/
-  context_length: 131072  # 128K — 端点 /v1/models 不暴露窗口大小，显式设定避免 256K 兜底警告
 
 custom_providers:
   - name: "172.168.80.17:3001"

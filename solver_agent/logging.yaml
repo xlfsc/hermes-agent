@@ -35,6 +35,6 @@ loggers:
     propagate: no
 
 root:
-  level: INFO
+  level: DEBUG
   handlers: [app_backend]
   propagate: no
