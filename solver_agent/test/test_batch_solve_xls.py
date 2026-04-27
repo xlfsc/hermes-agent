@@ -14,21 +14,22 @@
 from __future__ import annotations
 
 import json
-import logging
+import logging.config
 import sys
 import time
 from pathlib import Path
 
 import pandas as pd
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from solver_agent.solver import solve
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)-5s %(name)s - %(message)s",
-)
+with open('../logging.yaml', mode='r', encoding='utf-8') as config_file:
+    logging_config = yaml.load(stream=config_file, Loader=yaml.FullLoader)
+    logging.config.dictConfig(config=logging_config)
+
 logger = logging.getLogger(__name__)
 
 
