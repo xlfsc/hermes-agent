@@ -15,25 +15,23 @@ description: 自动并行调用不同大模型解答数学题，并利用逐步�
 - 如果题目包含图片或复杂公式，先做文字化整理。
 
 ### 第二步：并行调用不同模型解题
-- **必须在同一个 function_calls 块中同时发起三个 `mcp_solver_solve_math_problem` 调用**，实现真正的并行执行，禁止串行逐个调用。
-- 三个调用分别为：
-  1. `mcp_solver_solve_math_problem(text_input=..., solve_platform="DeepSeek", solve_model="deepseek-v3.2", thinking=false, verify_platform="Qwen")`
-  2. `mcp_solver_solve_math_problem(text_input=..., solve_platform="Qwen", solve_model="qwen3-235b-a22b", thinking=false, verify_platform="Qwen")`
-  3. `mcp_solver_solve_math_problem(text_input=..., solve_platform="Gemma", solve_model="gemma4", thinking=false, verify_platform="Qwen")`
-- **禁止使用 delegate_task 串行调用**，直接在一个回合内并发发出三个 MCP 工具调用即可。
+- **必须在同一个 function_calls 块中同时发起两个 `mcp_solver_solve_math_problem` 调用**，实现真正的并行执行，禁止串行逐个调用。
+- 两个调用分别为：
+  1. `mcp_solver_solve_math_problem(text_input=..., solve_platform="DeepSeek", solve_model="deepseek-v3.2", thinking=false)`
+  2. `mcp_solver_solve_math_problem(text_input=..., solve_platform="Gemma", solve_model="gemma4", thinking=false)`
+- **禁止使用 delegate_task 串行调用**，直接在一个回合内并发发出两个 MCP 工具调用即可。
 - 等待所有调用返回后，进入第三步。
 
 - 工具名称：`mcp_solver_solve_math_problem`
 - 参数说明：
   - `text_input`：题目文本
-  - `solve_platform`：平台名，可选 `"DeepSeek"`、`"Gemma"`、`"Qwen"`
+  - `solve_platform`：平台名，可选 `"DeepSeek"`、`"Gemma"`
   - `solve_model`：模型名，必须与平台匹配：
     - `DeepSeek` → `deepseek-v3.2`
-    - `Qwen` → `qwen3-235b-a22b`
     - `Gemma` → `gemma4`
   - `thinking`：`true` 或 `false`，是否开启深度思考
   - `prompt`：自定义解题提示词，可空使用服务端默认
-- **关键：三个调用必须放在同一个 function_calls 块中，利用底层并行执行，大幅缩短总耗时。**
+- **关键：两个调用必须放在同一个 function_calls 块中，利用底层并行执行，大幅缩短总耗时。**
 
 ### 第三步：逐步骤验证与交叉验证
 - 收集所有模型的解答后，对每个答案调用 `verify_analysis` 进行精细化校验。
@@ -41,8 +39,8 @@ description: 自动并行调用不同大模型解答数学题，并利用逐步�
 - 参数说明：
   - `stem_text`：原题文本
   - `analysis`：需要验证的某一模型的完整解答
-  - `verify_platform`：**必须使用不同于被验解答的模型平台**（例如用 DeepSeek 验证 Gemma 的答案，用 Gemma 验证 DeepSeek 的答案）
-  - `verify_model`：验证模型名，平台与模型的对应关系与解题时相同
+  - `verify_platform`：**统一使用 `"Qwen"` 作为验证平台**（Qwen 不参与解题，专职校验，保证验证独立性）
+  - `verify_model`：`qwen3-235b-a22b`
 - **`verify_analysis` 的返回格式**：
   - 对解答中的每个逻辑/计算步骤，标注状态：`正确`、`错误` 或 `未知`
   - 若步骤为 `错误`，会额外输出：
@@ -101,11 +99,11 @@ print(abs(val - target) < 1e-10)  # True/False 一目了然
 DeepSeek 在处理 `acosθ + bsinθ` 的辅助角变换时，容易把 `Rcos(θ-φ)` 误写为 `Rsin(θ+φ)`，导致后续数值计算全错。三角题中如果 DeepSeek 与其他模型分歧，优先怀疑其辅助角步骤。
 
 ## 可调参数
-- 初始并行平台列表：`["DeepSeek", "Gemma", "Qwen"]`
-- 平台与模型组合（解题/验证通用）：
+- 初始并行解题平台列表：`["DeepSeek", "Gemma"]`
+- 验证平台：`Qwen`（`qwen3-235b-a22b`，专职校验，不参与解题）
+- 平台与模型组合（解题）：
   - `DeepSeek` → `deepseek-v3.2`
-  - `Qwen` → `qwen3-235b-a22b`
   - `Gemma` → `gemma4`
 - 最大迭代轮数：`3`
-- 验证模式：`cross`（必用不同平台验对方）
+- 验证模式：`qwen-only`（Qwen 专职校验所有解答）
 - 最大并发工具调用数：`5`

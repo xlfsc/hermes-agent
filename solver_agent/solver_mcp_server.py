@@ -28,9 +28,9 @@ SOLVE_TIMEOUT = float(os.environ.get("SOLVER_SOLVE_TIMEOUT", "600"))
 VERIFY_TIMEOUT = float(os.environ.get("SOLVER_VERIFY_TIMEOUT", "300"))
 
 PLATFORM_MODELS = {
-    "QWen":     ["qwen3-235b-a22b"],
+    "Qwen":     ["qwen3-235b-a22b"],
     "DeepSeek": ["deepseek-v3.2"],
-    "Gemma":    ["gemma4"]
+    "Gemma":    ["gemma4"],
 }
 
 mcp = FastMCP("solver")
@@ -60,7 +60,7 @@ async def solve_math_problem(
     solve_model: str = "deepseek-v3.2",
     thinking: bool = True,
     verify: bool = False,
-    verify_platform: str = "QWen",
+    verify_platform: str = "Qwen",
     verify_model: str = "qwen3-235b-a22b",
     verify_round: int = 5,
     question_type: str = "",
@@ -74,9 +74,9 @@ async def solve_math_problem(
 
     平台与模型必须匹配，可选组合：
       - solve_platform=DeepSeek -> solve_model=deepseek-v3.2
-      - solve_platform=QWen     -> solve_model=qwen3-235b-a22b
+      - solve_platform=Qwen     -> solve_model=qwen3-235b-a22b
       - solve_platform=Gemma    -> solve_model=gemma4
-    校验平台同理（QWen / DeepSeek / Gemma / DouBao）。
+    校验平台同理（Qwen / DeepSeek / Gemma / DouBao）。
 
     参数:
       text_input:      题干文本，纯文字题目时填这里。
@@ -86,7 +86,7 @@ async def solve_math_problem(
       solve_model:     解题模型，需与 solve_platform 对应。
       thinking:        是否开启思维链 thinking，默认开启。
       verify:          是否在解题后做自动校验并迭代修正，默认开启。
-      verify_platform: 校验平台，默认 QWen。
+      verify_platform: 校验平台，默认 Qwen。
       verify_model:    校验模型，默认 qwen3-235b-a22b。
       verify_round:    最大校验轮数，默认 5。
       question_type:   题型（如 "选择题"、"解答题"），可空。
@@ -161,7 +161,7 @@ async def solve_math_problem(
 async def verify_analysis(
     stem_text: str,
     analysis: str,
-    verify_platform: str = "QWen",
+    verify_platform: str = "Qwen",
     verify_model: str = "qwen3-235b-a22b",
 ) -> dict:
     """
@@ -171,7 +171,7 @@ async def verify_analysis(
     各步骤推理是否正确的场景。
 
     平台与模型组合：
-      - verify_platform=QWen     -> verify_model=qwen3-235b-a22b
+      - verify_platform=Qwen     -> verify_model=qwen3-235b-a22b
       - verify_platform=DeepSeek -> verify_model=deepseek-v3.2
       - verify_platform=Gemma    -> verify_model=gemma4
 

@@ -21,3 +21,4 @@ pydantic==2.13.3
 # (hermes core 也会引入相同/兼容版本，这里显式钉一份做防御)
 mcp==1.27.0
 asgi-correlation-id>=3.0.0
+pandas==3.0.2

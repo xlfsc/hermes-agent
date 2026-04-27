@@ -1,6 +1,25 @@
 {
   "version": 1,
-  "manifest": {},
-  "skills": [],
+  "manifest": {
+    "math\\multi-model-math-solving-v2\\SKILL.md": [
+      1777304482469165700,
+      2877
+    ]
+  },
+  "skills": [
+    {
+      "skill_name": "multi-model-math-solving-v2",
+      "category": "math",
+      "frontmatter_name": "multi-model-math-solving-v2",
+      "description": "多模型协同解题的陷阱补充——域检查、verify_analysis 局限性、无 Python 时的手动验证（覆盖 ...",
+      "platforms": [],
+      "conditions": {
+        "fallback_for_toolsets": [],
+        "requires_toolsets": [],
+        "fallback_for_tools": [],
+        "requires_tools": []
+      }
+    }
+  ],
   "category_descriptions": {}
 }
