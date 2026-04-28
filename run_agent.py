@@ -5188,7 +5188,10 @@ class AIAgent:
                 import socket as _socket
                 try:
                     sock.setblocking(False)
-                    data = sock.recv(1, _socket.MSG_PEEK | _socket.MSG_DONTWAIT)
+                    _recv_flags = _socket.MSG_PEEK
+                    if hasattr(_socket, "MSG_DONTWAIT"):
+                        _recv_flags |= _socket.MSG_DONTWAIT
+                    data = sock.recv(1, _recv_flags)
                     if data == b"":
                         dead_count += 1
                 except BlockingIOError:

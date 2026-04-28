@@ -292,7 +292,7 @@ def _write_trace(
             "events": bridge.events,
             "messages": conv_result.get("messages", []),
         }
-        trace_path = TRACE_DIR / f"{trace_id}.json"
+        trace_path = TRACE_DIR / f"log/{trace_id}.json"
         trace_path.write_text(
             json.dumps(trace, ensure_ascii=False, indent=2, default=str),
             encoding="utf-8",

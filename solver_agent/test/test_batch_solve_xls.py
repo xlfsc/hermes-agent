@@ -72,40 +72,43 @@ def run_batch(
 ) -> None:
     total = len(df)
     t0 = time.monotonic()
-    seq = 0
 
     for idx, row in df.iterrows():
+        idx += 2
         problem = str(row[problem_col]).strip()
+        sub_stem = str(row["subStem"]).strip()
+        if sub_stem:
+            sub_stem = sub_stem.replace('#%#', '\n')
+            problem = f"{problem}\n{sub_stem}"
         if not problem:
-            logger.warning("[%s/%s] 跳过空题目 (row %s)", idx + 1, total, idx)
+            logger.warning("[%s/%s] 跳过空题目 (row %s)", idx, total, idx)
             continue
 
-        seq += 1
-        logger.info("[%s/%s] 开始解题: %s", seq, total, problem[:80])
+        logger.info("[%s/%s] 开始解题: %s", idx, total, problem[:80])
         try:
             result = solve(problem, quiet=quiet)
             logger.info(
                 "[%s/%s] 完成 (%.1fs): %s",
-                seq, total, result["elapsed_seconds"],
+                idx, total, result["elapsed_seconds"],
                 str(result["answer"])[:120],
             )
         except Exception as exc:
-            logger.exception("[%s/%s] 解题失败 (row %s)", seq, total, idx)
+            logger.exception("[%s/%s] 解题失败 (row %s)", idx, total, idx)
             result = {"answer": "ERROR", "error": str(exc)}
 
         result["index"] = int(idx)
         result["problem"] = problem
-        _save_one(seq, problem, result, output_dir)
+        _save_one(idx, problem, result, output_dir)
 
     elapsed = time.monotonic() - t0
-    logger.info("全部完成: %s 题, 总耗时 %.1fs", seq, elapsed)
+    logger.info("全部完成: %s 题, 总耗时 %.1fs", idx, elapsed)
 
 
 def main() -> None:
     sheet = 0
-    input_path = r"F:\lab\hw\第一阶段\函数\hw_test_0206.xlsx"
-    output_dir = Path(r"F:\lab\hw\第一阶段\函数\hermes_0428")
-    problem_col = '题干文本'
+    input_path = r"F:\lab\hw\验证结果为错误\验证结果为错误.xlsx"
+    output_dir = Path(r"F:\lab\hw\验证结果为错误\hermes_0428_thinking")
+    problem_col = 'stem'
     output_dir.mkdir(parents=True, exist_ok=True)
 
     df = load_problems(input_path, sheet, problem_col)
