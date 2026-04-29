@@ -1,4 +1,4 @@
-"""批量解题脚本：从 Excel 读取题目，逐行调用 solver.solve()。
+"""批量解题脚本：从 Excel 读取题目，并行调用 solver.solve()。
 - 题干 + 解析 拼接写入 Markdown
 - 每题的完整 solve() 返回值保留在 JSON
 
@@ -17,6 +17,7 @@ import json
 import logging.config
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import pandas as pd
@@ -67,48 +68,58 @@ def _save_one(seq: int, problem: str, result: dict, output_dir: Path) -> None:
     logger.info("已写入: %s, %s", md_path.name, json_path.name)
 
 
+def _solve_one(idx: int, total: int, problem: str, quiet: bool) -> dict:
+    logger.info("[%s/%s] 开始解题: %s", idx, total, problem[:80])
+    try:
+        result = solve(problem, quiet=quiet)
+        logger.info(
+            "[%s/%s] 完成 (%.1fs): %s",
+            idx, total, result["elapsed_seconds"],
+            str(result["answer"])[:120],
+        )
+    except Exception as exc:
+        logger.exception("[%s/%s] 解题失败 (row %s)", idx, total, idx)
+        result = {"answer": "ERROR", "error": str(exc)}
+    result["index"] = idx
+    result["problem"] = problem
+    return result
+
+
 def run_batch(
         df: pd.DataFrame, problem_col: str, quiet: bool, output_dir: Path,
+        max_workers: int = 4,
 ) -> None:
     total = len(df)
     t0 = time.monotonic()
 
+    tasks = []
     for idx, row in df.iterrows():
         idx += 2
         problem = str(row[problem_col]).strip()
-        sub_stem = str(row["subStem"]).strip()
-        if sub_stem:
-            sub_stem = sub_stem.replace('#%#', '\n')
-            problem = f"{problem}\n{sub_stem}"
         if not problem:
             logger.warning("[%s/%s] 跳过空题目 (row %s)", idx, total, idx)
             continue
+        tasks.append((idx, problem))
 
-        logger.info("[%s/%s] 开始解题: %s", idx, total, problem[:80])
-        try:
-            result = solve(problem, quiet=quiet)
-            logger.info(
-                "[%s/%s] 完成 (%.1fs): %s",
-                idx, total, result["elapsed_seconds"],
-                str(result["answer"])[:120],
-            )
-        except Exception as exc:
-            logger.exception("[%s/%s] 解题失败 (row %s)", idx, total, idx)
-            result = {"answer": "ERROR", "error": str(exc)}
-
-        result["index"] = int(idx)
-        result["problem"] = problem
-        _save_one(idx, problem, result, output_dir)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_solve_one, idx, total, problem, quiet): idx
+            for idx, problem in tasks
+        }
+        for future in as_completed(futures):
+            idx = futures[future]
+            result = future.result()
+            _save_one(idx, result["problem"], result, output_dir)
 
     elapsed = time.monotonic() - t0
-    logger.info("全部完成: %s 题, 总耗时 %.1fs", idx, elapsed)
+    logger.info("全部完成: %s 题, 总耗时 %.1fs", total, elapsed)
 
 
 def main() -> None:
     sheet = 0
-    input_path = r"F:\lab\hw\验证结果为错误\验证结果为错误.xlsx"
-    output_dir = Path(r"F:\lab\hw\验证结果为错误\hermes_0428_thinking")
-    problem_col = 'stem'
+    input_path = r"/home/gc/solve/hw/hw_test_0206.xlsx"
+    output_dir = Path(r"/home/gc/solve/hw/hermes_0429")
+    problem_col = '题干文本'
     output_dir.mkdir(parents=True, exist_ok=True)
 
     df = load_problems(input_path, sheet, problem_col)
@@ -120,7 +131,8 @@ def main() -> None:
         problem_col
     )
 
-    run_batch(df, problem_col, False, output_dir)
+    max_workers = 10
+    run_batch(df, problem_col, False, output_dir, max_workers=max_workers)
 
 
 if __name__ == "__main__":
