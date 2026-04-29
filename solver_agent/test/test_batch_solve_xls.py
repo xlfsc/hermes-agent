@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging.config
+import os
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -49,23 +50,23 @@ def load_problems(
     return df
 
 
-def _save_one(seq: int, problem: str, result: dict, output_dir: Path) -> None:
+def _save_one(seq: int, problem: str, result: dict, output_dir: str) -> None:
     tag = f"{seq: 04d}"
 
-    md_path = output_dir / f"md/{tag}.md"
-    md_path.write_text(
+    md_path = os.path.join(output_dir, "md", f"{tag}.md")
+    Path(md_path).write_text(
         f"# 第 {seq} 题\n\n"
         f"## 题干\n\n{problem}\n\n"
         f"## 解析\n\n{result.get('answer', 'N/A')}\n",
         encoding="utf-8",
     )
 
-    json_path = output_dir / f"json/{tag}.json"
-    json_path.write_text(
+    json_path = os.path.join(output_dir, "json", f"{tag}.json")
+    Path(json_path).write_text(
         json.dumps(result, ensure_ascii=False, indent=2, default=str),
         encoding="utf-8",
     )
-    logger.info("已写入: %s, %s", md_path.name, json_path.name)
+    logger.info("已写入: %s, %s", md_path, json_path)
 
 
 def _solve_one(idx: int, total: int, problem: str, quiet: bool) -> dict:
@@ -86,7 +87,7 @@ def _solve_one(idx: int, total: int, problem: str, quiet: bool) -> dict:
 
 
 def run_batch(
-        df: pd.DataFrame, problem_col: str, quiet: bool, output_dir: Path,
+        df: pd.DataFrame, problem_col: str, quiet: bool, output_dir: str,
         max_workers: int = 4,
 ) -> None:
     total = len(df)
@@ -118,9 +119,9 @@ def run_batch(
 def main() -> None:
     sheet = 0
     input_path = r"/home/gc/solve/hw/hw_test_0206.xlsx"
-    output_dir = Path(r"/home/gc/solve/hw/hermes_0429")
+    output_dir = r"/home/gc/solve/hw/hermes_0429"
     problem_col = '题干文本'
-    output_dir.mkdir(parents=True, exist_ok=True)
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     df = load_problems(input_path, sheet, problem_col)
 
@@ -131,7 +132,7 @@ def main() -> None:
         problem_col
     )
 
-    max_workers = 10
+    max_workers = 1
     run_batch(df, problem_col, False, output_dir, max_workers=max_workers)
 
 

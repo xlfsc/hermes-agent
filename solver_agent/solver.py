@@ -15,9 +15,9 @@ from pathlib import Path
 from typing import Any, Dict
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SOLVER_HOME = REPO_ROOT / "solver_agent" / "hermes_home"
-SOLVER_SKILLS_DIR = REPO_ROOT / "solver_agent" / "skills"
-TRACE_DIR = Path(os.environ.get("SOLVER_TRACE_DIR", "")) or (REPO_ROOT / "solver_agent" / "traces")
+SOLVER_HOME = os.path.join(REPO_ROOT, "solver_agent", "hermes_home")
+SOLVER_SKILLS_DIR = os.path.join(REPO_ROOT, "solver_agent", "skills")
+TRACE_DIR = os.path.join(REPO_ROOT, "solver_agent", "traces")
 
 os.environ.setdefault("HERMES_HOME", str(SOLVER_HOME))
 os.environ.setdefault("SOLVER_AGENT_SKILLS_DIR", str(SOLVER_SKILLS_DIR))
@@ -65,7 +65,9 @@ class _TracingBridge:
         logger.info("agent preparing tool: %s", tool_name)
         self._emit({"type": "tool_gen", "tool_name": tool_name})
 
-    def on_tool_start(self, tool_call_id: str, tool_name: str, args: dict) -> None:
+    def on_tool_start(
+            self, tool_call_id: str, tool_name: str, args: dict
+    ) -> None:
         self._flush_text()
         logger.info(
             "agent tool start: %s id=%s args=%s",
@@ -80,13 +82,18 @@ class _TracingBridge:
         })
 
     def on_tool_complete(
-        self, tool_call_id: str, tool_name: str, args: dict, result: str,
+            self, tool_call_id: str, tool_name: str, args: dict, result: str,
     ) -> None:
         self._flush_text()
         preview = result.strip().replace("\n", "\\n")
         if len(preview) > 500:
             preview = preview[:500] + "..."
-        logger.info("agent tool complete: %s id=%s result=%s", tool_name, tool_call_id, preview[:400])
+        logger.info(
+            "agent tool complete: %s id=%s result=%s",
+            tool_name,
+            tool_call_id,
+            preview[:400]
+        )
         self._emit({
             "type": "tool_complete",
             "tool_call_id": tool_call_id,
@@ -103,8 +110,18 @@ class _TracingBridge:
     def on_step(self, api_call_count: int, prev_tools: list[dict]) -> None:
         self._flush_text()
         tool_names = [t.get("name") for t in prev_tools if isinstance(t, dict)]
-        logger.info("agent step: api_call=%s previous_tools=%s", api_call_count, tool_names)
-        self._emit({"type": "step", "api_call": api_call_count, "prev_tools": prev_tools})
+        logger.info(
+            "agent step: api_call=%s previous_tools=%s",
+            api_call_count,
+            tool_names
+        )
+        self._emit(
+            {
+                "type": "step",
+                "api_call": api_call_count,
+                "prev_tools": prev_tools
+            }
+        )
 
     def _flush_text(self) -> None:
         text = self._buffer.strip()
@@ -119,9 +136,15 @@ class _TracingBridge:
 
 def _make_clarify_callback(bridge: _TracingBridge | None):
     def _callback(question: str, choices=None) -> str:
-        logger.info("agent clarify requested: question=%s choices=%s", question, choices)
+        logger.info(
+            "agent clarify requested: question=%s choices=%s",
+            question,
+            choices
+        )
         if bridge:
-            bridge._emit({"type": "clarify", "question": question, "choices": choices})
+            bridge._emit(
+                {"type": "clarify", "question": question, "choices": choices}
+            )
         if choices:
             return (
                 f"[server mode: no interactive user. Pick the best option from "
@@ -131,6 +154,7 @@ def _make_clarify_callback(bridge: _TracingBridge | None):
             "[server mode: no interactive user. Make the most reasonable assumption "
             "and continue.]"
         )
+
     return _callback
 
 
@@ -160,7 +184,8 @@ def solve(problem: str, *, quiet: bool = False) -> Dict[str, Any]:
     if isinstance(model_cfg, str):
         effective_model = model_cfg
     else:
-        effective_model = model_cfg.get("default") or model_cfg.get("model") or "gemma4"
+        effective_model = model_cfg.get("default") or model_cfg.get(
+            "model") or "gemma4"
 
     custom_entries = get_compatible_custom_providers(cfg)
     if not custom_entries:
@@ -187,7 +212,9 @@ def solve(problem: str, *, quiet: bool = False) -> Dict[str, Any]:
     skill_names = cfg.get("default_skills") or ["multi-model-math-solving"]
     skills_prompt, loaded, missing = build_preloaded_skills_prompt(skill_names)
     if missing:
-        raise RuntimeError(f"Skill(s) not found in {SOLVER_SKILLS_DIR}: {missing}")
+        raise RuntimeError(
+            f"Skill(s) not found in {SOLVER_SKILLS_DIR}: {missing}"
+        )
     logger.info("Preloaded skills: %s", loaded)
 
     bridge = _TracingBridge()
@@ -196,7 +223,10 @@ def solve(problem: str, *, quiet: bool = False) -> Dict[str, Any]:
     started = time.monotonic()
     logger.info(
         "solve started: trace_id=%s model=%s provider=%s quiet=%s problem_chars=%s",
-        trace_id, effective_model, runtime.get("provider"), quiet, len(problem),
+        trace_id, effective_model,
+        runtime.get("provider"),
+        quiet,
+        len(problem),
     )
 
     conv_result: Dict[str, Any] = {}
@@ -246,9 +276,15 @@ def solve(problem: str, *, quiet: bool = False) -> Dict[str, Any]:
 
     answer = conv_result.get("final_response") or ""
     elapsed = time.monotonic() - started
-    logger.info("solve finished: trace_id=%s elapsed_seconds=%.3f answer_chars=%s", trace_id, elapsed, len(answer))
+    logger.info(
+        "solve finished: trace_id=%s elapsed_seconds=%.3f answer_chars=%s",
+        trace_id, elapsed, len(answer)
+    )
 
-    _write_trace(trace_id, problem, quiet, effective_model, runtime, conv_result, bridge, elapsed)
+    _write_trace(
+        trace_id, problem, quiet, effective_model, runtime,
+        conv_result, bridge, elapsed
+    )
 
     return {
         "answer": answer,
@@ -259,17 +295,17 @@ def solve(problem: str, *, quiet: bool = False) -> Dict[str, Any]:
 
 
 def _write_trace(
-    trace_id: str,
-    problem: str,
-    quiet: bool,
-    model: str,
-    runtime: dict,
-    conv_result: dict,
-    bridge: _TracingBridge,
-    elapsed: float,
+        trace_id: str,
+        problem: str,
+        quiet: bool,
+        model: str,
+        runtime: dict,
+        conv_result: dict,
+        bridge: _TracingBridge,
+        elapsed: float,
 ) -> None:
     try:
-        TRACE_DIR.mkdir(parents=True, exist_ok=True)
+        Path(TRACE_DIR).mkdir(parents=True, exist_ok=True)
         trace = {
             "trace_id": trace_id,
             "created_at": _now(),
@@ -287,12 +323,13 @@ def _write_trace(
                 "api_calls": conv_result.get("api_calls", 0),
                 "input_tokens": conv_result.get("input_tokens", 0),
                 "output_tokens": conv_result.get("output_tokens", 0),
-                "estimated_cost_usd": conv_result.get("estimated_cost_usd", 0.0),
+                "estimated_cost_usd": conv_result.get("estimated_cost_usd",
+                                                      0.0),
             },
             "events": bridge.events,
             "messages": conv_result.get("messages", []),
         }
-        trace_path = TRACE_DIR / f"log/{trace_id}.json"
+        trace_path = Path(os.path.join(TRACE_DIR, f"{trace_id}.json"))
         trace_path.write_text(
             json.dumps(trace, ensure_ascii=False, indent=2, default=str),
             encoding="utf-8",
