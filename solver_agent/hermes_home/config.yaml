@@ -4,11 +4,11 @@
 model:
   default: gemma4
   provider: custom
-  base_url: http://172.168.80.17:3001/v1/
+  base_url: http://171.214.10.150:11600/v1/
 
 custom_providers:
   - name: "172.168.80.17:3001"
-    base_url: http://172.168.80.17:3001/v1/
+    base_url: http://171.214.10.150:11600/v1/
     api_key: mysecurekey123
     model: gemma4
 
