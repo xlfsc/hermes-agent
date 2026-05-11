@@ -97,6 +97,11 @@ def run_batch(
     for idx, row in df.iterrows():
         idx += 2
         problem = str(row[problem_col]).strip()
+        sub_stem = str(row["subStem"]).strip()
+        # sub_stem = ''
+        if sub_stem:
+            sub_stem = sub_stem.replace("#%#", "\n")
+            problem = f"{problem}\n{sub_stem}"
         if not problem:
             logger.warning("[%s/%s] 跳过空题目 (row %s)", idx, total, idx)
             continue
@@ -118,9 +123,9 @@ def run_batch(
 
 def main() -> None:
     sheet = 0
-    input_path = r"/home/gc/solve/hw/hw_test_0206.xlsx"
-    output_dir = r"/home/gc/solve/hw/hermes_0429"
-    problem_col = '题干文本'
+    input_path = r"/home/gc/solve/hw/inequality/questions_不等式.xlsx"
+    output_dir = r"/home/gc/solve/hw/inequality/hermes_0507"
+    problem_col = 'stem'
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     df = load_problems(input_path, sheet, problem_col)
@@ -132,7 +137,7 @@ def main() -> None:
         problem_col
     )
 
-    max_workers = 1
+    max_workers = 5
     run_batch(df, problem_col, False, output_dir, max_workers=max_workers)
 
 
