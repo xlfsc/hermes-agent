@@ -26,6 +26,8 @@ mcp_servers:
       SOLVER_API_BASE: http://172.168.80.46:8000
       SOLVER_SOLVE_TIMEOUT: '600'
       SOLVER_VERIFY_TIMEOUT: '300'
+      LEAN4_API_BASE: http://172.168.80.36:8008
+      LEAN4_VERIFY_TIMEOUT: '300'
     timeout: 660
     connect_timeout: 30
 

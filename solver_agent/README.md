@@ -1,6 +1,6 @@
 # Math Solver Agent
 
-基于 Hermes Agent 二次封装的**多模型协同解题服务**。通过 FastAPI HTTP 接口对外提供单轮解题能力：内部 Agent 按照 `multi-model-math-solving` skill 的策略，并行调用 DeepSeek / Gemma 两个模型解题，再由 Qwen 交叉验证、迭代修正，最终输出最优解。
+基于 Hermes Agent 二次封装的**多模型协同解题服务**。通过 FastAPI HTTP 接口对外提供单轮解题能力：内部 Agent 按照 `multi-model-math-solving` skill 的策略，并行调用 DeepSeek / Gemma 两个模型解题，再由 Qwen + Lean4 双路并行验证（取并集）、迭代修正，最终输出最优解。
 
 与本仓库其它入口（CLI、TUI、Gateway）相互独立 — 走自己的 `HERMES_HOME`，**不读也不写用户的 `~/.hermes/config.yaml`**。
 
@@ -21,7 +21,7 @@ solver_agent/
 ├── traces/                                  # 每次请求的全链路 trace JSON（自动生成）
 ├── api.py                                   # FastAPI 应用：POST /solve、GET /health
 ├── solver.py                                # 核心：solve(problem) -> dict
-├── solver_mcp_server.py                     # MCP 封装：暴露 solve_math_problem / verify_analysis / ping
+├── solver_mcp_server.py                     # MCP 封装：暴露 solve_math_problem / verify_analysis / verify_analysis_lean4 / ping
 ├── run_server.py                            # 启动入口
 ├── logging.yaml                             # 服务端日志配置
 ├── requirements.txt                         # 运行时依赖
@@ -38,6 +38,7 @@ solver_agent/
 | Hermes 主仓库依赖 | 按本仓 `pyproject.toml` 安装一次即可（含 `mcp` SDK） |
 | `fastapi`、`uvicorn[standard]`、`pydantic` | 通常随 Hermes web 路径已装；缺则补装 |
 | **后端解题服务可达** | `SOLVER_API_BASE`（默认 `http://172.168.80.46:8000`） |
+| **Lean4 形式化验证服务可达** | `LEAN4_API_BASE`（默认 `http://172.168.80.36:8008`） |
 | **大脑模型端点可达** | `hermes_home/config.yaml` 中 `custom_providers` 配置的地址 |
 
 一键安装所有依赖（在仓库根目录执行）：
@@ -80,6 +81,8 @@ mcp_servers:
       SOLVER_API_BASE: http://172.168.80.46:8000  # ← 后端 API 地址
       SOLVER_SOLVE_TIMEOUT: '600'
       SOLVER_VERIFY_TIMEOUT: '300'
+      LEAN4_API_BASE: http://172.168.80.36:8008   # ← Lean4 形式化验证地址
+      LEAN4_VERIFY_TIMEOUT: '300'
     timeout: 660
     connect_timeout: 30
 ```
@@ -109,6 +112,8 @@ default_skills:
 | `SOLVER_API_KEY` | _(空)_ | 后端 API 鉴权 key，可选 |
 | `SOLVER_SOLVE_TIMEOUT` | `600` | 解题请求超时（秒） |
 | `SOLVER_VERIFY_TIMEOUT` | `300` | 校验请求超时（秒） |
+| `LEAN4_API_BASE` | `http://172.168.80.36:8008` | Lean4 形式化验证服务地址 |
+| `LEAN4_VERIFY_TIMEOUT` | `300` | Lean4 形式化验证请求超时（秒） |
 | `SOLVER_TRACE_DIR` | `solver_agent/traces` | Trace 文件输出目录 |
 
 ---
@@ -238,7 +243,7 @@ console.log((await r.json()).answer);
 
 ## 7. MCP 工具详情
 
-`solver_mcp_server.py` 通过 stdio 传输暴露三个 MCP 工具，供 Agent 内部调用：
+`solver_mcp_server.py` 通过 stdio 传输暴露四个 MCP 工具，供 Agent 内部调用：
 
 ### `solve_math_problem`
 
@@ -281,6 +286,35 @@ console.log((await r.json()).answer);
 
 返回每个步骤的 `verify_status`（`right` / `error` / `unknown`）及反馈。
 
+### `verify_analysis_lean4`
+
+使用 Lean4 形式化验证对解析做机器可证明级别的校验，与 `verify_analysis` 互补，组成双路并行验证。
+
+| 参数 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `problem_text` | str | — | 数学题题干原文 |
+| `solution_text` | str | — | 题目解析、答案或证明思路文本 |
+
+返回字段（关键字段）：
+
+| 字段 | 说明 |
+|------|------|
+| `ok` | 请求层面是否成功 |
+| `status` | 后端 `status`：`success` / `failed` / `system_error` |
+| `success` | `conclusion.success`，本次形式化校验是否整体通过 |
+| `has_error` | `not success`，与 `verify_analysis` 的语义对齐 |
+| `stage` | 结束阶段：`formalization` / `compile` / `semantic` / `system` |
+| `formalization` | `{ has_error, error_message, lean_code, natural_language_info }` |
+| `compile_check` | `{ compile_pass, error_type, error_message }` |
+| `semantic_check` | `{ semantic_pass, semantic_reason, checked_lean4_code, error_message }` |
+| `conclusion` | `{ success, stage, message, first_error }` |
+| `task_id` / `timestamp` | 后端返回的原始字段，便于追溯 |
+
+适用题型：代数恒等式、方程推导、数值不等式等可形式化内容。
+对几何/应用题等难以形式化的题型，通常在 `stage="formalization"` 阶段直接失败——此时以 `verify_analysis` 的结果为准即可。
+
+后端地址与超时通过 `LEAN4_API_BASE` / `LEAN4_VERIFY_TIMEOUT` 环境变量配置。
+
 ### `ping`
 
 检查后端解题/校验服务是否可达。
@@ -293,7 +327,7 @@ console.log((await r.json()).answer);
 
 1. **理解题目** — 确认题型、关键条件，文字化整理
 2. **并行解题** — 在同一个 `function_calls` 块中同时调用 DeepSeek 和 Gemma 解题（禁止串行）
-3. **交叉验证** — 用 Qwen（专职校验，不参与解题）对每个解答逐步骤验证
+3. **双路并行验证** — 同回合内并发调用 `verify_analysis`（Qwen）与 `verify_analysis_lean4`（Lean4），两路结果取并集（任一路报错即视为存疑）
 4. **迭代修正** — 若无候选正解，汇总错误与建议，综合改进后重新验证（最多 3 轮）
 5. **输出答案** — 说明选择过程、各模型表现、修正了哪些关键错误
 6. **沉淀经验** — 记录错误模式和高成功率模型组合
@@ -302,6 +336,7 @@ console.log((await r.json()).answer);
 
 - **DeepSeek 辅助角公式易错**：处理 `acosθ + bsinθ` 时容易把 `Rcos(θ-φ)` 误写为 `Rsin(θ+φ)`，三角题中优先怀疑其辅助角步骤
 - **模型分歧时优先数值验证**：用 Python 代入验证比再调一轮 LLM 更快更可靠
+- **Lean4 对几何/应用题常返回 unknown**：`verify_analysis_lean4` 擅长代数、方程、数值不等式；对纯几何、文字应用题常在 `stage="formalization"` 阶段失败（无法形式化），此时以 Qwen 的 `verify_analysis` 结果为准
 
 ---
 
@@ -394,7 +429,7 @@ batch_results/
 | `Preloaded skills: ['multi-model-math-solving']` | skill 加载 OK |
 | `MCP: registered N tool(s) from 1 server(s)` | MCP server 连上、工具注册成功 |
 | 两个 `mcp_solver_solve_math_problem` 在同一回合并发触发 | skill 流程被严格遵循 |
-| `verify_analysis` 调用，平台为 Qwen | 交叉验证按预期跑 |
+| `verify_analysis` 与 `verify_analysis_lean4` 在同一回合并发触发 | 双路验证按预期并行执行 |
 
 如果只看到一个 `mcp_solver_solve_math_problem` 调用而不是两个，先确认请求里 `quiet=false`；若日志里仍只有一个 tool call，再考虑把 `model.default` 换强一点，或在题目前明确加一句"按 multi-model-math-solving 流程执行"。
 

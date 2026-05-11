@@ -33,24 +33,31 @@ description: 自动并行调用不同大模型解答数学题，并利用逐步�
   - `prompt`：自定义解题提示词，可空使用服务端默认
 - **关键：两个调用必须放在同一个 function_calls 块中，利用底层并行执行，大幅缩短总耗时。**
 
-### 第三步：逐步骤验证与交叉验证
-- 收集所有模型的解答后，对每个答案调用 `verify_analysis` 进行精细化校验。
-- 工具名称：`verify_analysis`
-- 参数说明：
-  - `stem_text`：原题文本
-  - `analysis`：需要验证的某一模型的完整解答
-  - `verify_platform`：**统一使用 `"Qwen"` 作为验证平台**（Qwen 不参与解题，专职校验，保证验证独立性）
-  - `verify_model`：`qwen3-235b-a22b`
-- **`verify_analysis` 的返回格式**：
-  - 对解答中的每个逻辑/计算步骤，标注状态：`正确`、`错误` 或 `未知`
-  - 若步骤为 `错误`，会额外输出：
-    - `错因`：指出具体错误类型（计算错误、逻辑断裂、条件误用等）
-    - `建议修正点`：给出修改方向或正确做法
-  - 最终汇总所有步骤的正确、错误、未知计数，并可给出整体置信度
+### 第三步：双路并行验证（Qwen + Lean4，取并集）
+- 收集所有模型的解答后，对每个答案 **在同一个 function_calls 块中并行调用两个验证工具**：
+  1. `mcp_solver_verify_analysis(stem_text=..., analysis=..., verify_platform="Qwen", verify_model="qwen3-235b-a22b")` — 基于 LLM 的自然语言逐步骤校验。
+  2. `mcp_solver_verify_analysis_lean4(problem_text=..., solution_text=...)` — 基于 Lean4 的形式化校验，机器可证明级别。
+- 两个工具是 **独立的验证路径**，禁止串行；同一回合内并发发出即可。
+- **`verify_analysis`** 的返回（Qwen 路）：
+  - 对每个步骤标注：`正确`、`错误` 或 `未知`
+  - 若为 `错误`，附带 `错因`、`建议修正点`
+  - 汇总各类计数与整体置信度
+- **`verify_analysis_lean4`** 的返回（Lean4 路）：
+  - `success`：本次形式化校验是否整体通过（等价于 `not has_error`）
+  - `stage`：失败所在阶段 `formalization` | `compile` | `semantic` | `system`
+  - `formalization.lean_code`：转换出的 Lean4 代码（通过的话可作为正确性证据）
+  - `compile_check.compile_pass`、`semantic_check.semantic_pass`：两阶段的布尔结果
+  - `conclusion.first_error`、`conclusion.message`：首条关键错误与总结
+- **结果取并集（联合判定）**：
+  - 只有当两路都判为通过时，该解答才算"形式上正确"
+  - 任一路报错即视为该步骤存疑，进入"待修正"列表
+  - Lean4 在 `formalization` 或 `system` 阶段失败时视为"无法形式化"，不计入错误；以 Qwen 的判定为准
+  - 只有所有步骤都通过两路校验时，该解答才标记为"候选正解"
 - **交叉验证要求**：
-  - 每个答案至少被一个"对手模型"验证
-  - 若某答案的所有步骤均为 `正确`，标记为"候选正解"
-  - 如果仅有一个候选正解，直接进入第五步输出；否则进入第四步
+  - 每个解答都要走完整的双路验证
+  - 若仅有一个候选正解，直接进入第五步输出
+  - 否则进入第四步迭代修正
+
 
 ### 第四步：迭代修正直到产生正解
 如果当前轮次没有找到任何"候选正解"（即所有解答均存在错误步骤），则执行以下迭代逻辑：
@@ -98,12 +105,19 @@ print(abs(val - target) < 1e-10)  # True/False 一目了然
 ### DeepSeek 辅助角公式易错
 DeepSeek 在处理 `acosθ + bsinθ` 的辅助角变换时，容易把 `Rcos(θ-φ)` 误写为 `Rsin(θ+φ)`，导致后续数值计算全错。三角题中如果 DeepSeek 与其他模型分歧，优先怀疑其辅助角步骤。
 
+### Lean4 对几何/应用题常返回 unknown
+`verify_analysis_lean4` 擅长代数恒等式、方程推导、数值不等式等可形式化的题型；
+对纯几何、文字应用题、需要外部公式库的题型，常在 `stage="formalization"` 阶段
+直接失败（自然语言难以自动转成 Lean4 代码）——这不代表解答错误，只代表
+"无法形式化"。此时以 `verify_analysis` 的 Qwen 结果为准即可。
+
 ## 可调参数
 - 初始并行解题平台列表：`["DeepSeek", "Gemma"]`
-- 验证平台：`Qwen`（`qwen3-235b-a22b`，专职校验，不参与解题）
+- 验证路径（双路并行，取并集）：
+  - LLM 路：`verify_analysis`，平台 `Qwen`（`qwen3-235b-a22b`，专职校验，不参与解题）
+  - 形式化路：`verify_analysis_lean4`（Lean4 后端，无需指定模型）
 - 平台与模型组合（解题）：
   - `DeepSeek` → `deepseek-v3.2`
   - `Gemma` → `gemma4`
 - 最大迭代轮数：`3`
-- 验证模式：`qwen-only`（Qwen 专职校验所有解答）
 - 最大并发工具调用数：`5`

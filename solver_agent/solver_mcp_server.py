@@ -27,6 +27,11 @@ API_KEY = os.environ.get("SOLVER_API_KEY")
 SOLVE_TIMEOUT = float(os.environ.get("SOLVER_SOLVE_TIMEOUT", "600"))
 VERIFY_TIMEOUT = float(os.environ.get("SOLVER_VERIFY_TIMEOUT", "300"))
 
+LEAN4_API_BASE = os.environ.get(
+    "LEAN4_API_BASE", "http://172.168.80.36:8008"
+).rstrip("/")
+LEAN4_VERIFY_TIMEOUT = float(os.environ.get("LEAN4_VERIFY_TIMEOUT", "300"))
+
 PLATFORM_MODELS = {
     "Qwen":     ["qwen3-235b-a22b"],
     "DeepSeek": ["deepseek-v3.2"],
@@ -219,6 +224,74 @@ async def verify_analysis(
         "has_error": data.get("has_error", False),
         "cost": data.get("cost", 0.0),
         "verify_results": data.get("verify_results", []),
+    }
+
+
+@mcp.tool()
+async def verify_analysis_lean4(
+    problem_text: str,
+    solution_text: str,
+) -> dict:
+    """
+    使用 Lean4 形式化验证对解析做机器可证明级别的校验，与 verify_analysis 互补。
+
+    与基于 LLM 的 verify_analysis 是两条独立的验证路径，建议并行调用，
+    两路结果取并集（任一路报错即视为该步骤存疑）后再进入迭代修正。
+
+    适用场景：代数恒等式、方程推导、数值不等式等可形式化的题型。
+    对几何/应用题等难以形式化的题型，Lean4 通常会在 formalization 阶段
+    直接失败（stage="formalization"），此时建议以 verify_analysis 的结果为准。
+
+    参数:
+      problem_text:  数学题题干原文。
+      solution_text: 题目解析、答案或证明思路文本。
+
+    返回 dict:
+      ok:              请求层面是否成功。
+      status:          后端 status（success | failed | system_error）。
+      success:         conclusion.success，本次形式化校验是否通过。
+      has_error:       not success，便于与 verify_analysis 的语义对齐。
+      stage:           结束阶段（formalization | compile | semantic | system）。
+      formalization:   { has_error, error_message, lean_code, natural_language_info }。
+      compile_check:   { compile_pass, error_type, error_message }。
+      semantic_check:  { semantic_pass, semantic_reason, checked_lean4_code, error_message }。
+      conclusion:      { success, stage, message, first_error }。
+      task_id / timestamp: 后端返回的原始字段。
+    """
+    payload = {"problem_text": problem_text, "solution_text": solution_text}
+
+    try:
+        async with httpx.AsyncClient(timeout=LEAN4_VERIFY_TIMEOUT) as client:
+            resp = await client.post(
+                f"{LEAN4_API_BASE}/verify",
+                json=payload,
+                headers=_headers(),
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.HTTPStatusError as e:
+        return {
+            "ok": False,
+            "error": f"HTTP {e.response.status_code}",
+            "detail": _truncate(e.response.text, 1000),
+        }
+    except httpx.HTTPError as e:
+        return {"ok": False, "error": "request_failed", "detail": str(e)}
+
+    conclusion = data.get("conclusion") or {}
+    success = bool(conclusion.get("success", False))
+    return {
+        "ok": True,
+        "task_id": data.get("task_id"),
+        "timestamp": data.get("timestamp"),
+        "status": data.get("status"),
+        "success": success,
+        "has_error": not success,
+        "stage": conclusion.get("stage"),
+        "formalization": data.get("formalization") or {},
+        "compile_check": data.get("compile_check") or {},
+        "semantic_check": data.get("semantic_check") or {},
+        "conclusion": conclusion,
     }
 
 
