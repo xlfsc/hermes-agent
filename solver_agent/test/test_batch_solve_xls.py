@@ -87,11 +87,7 @@ def _solve_one(idx: int, total: int, problem: str, quiet: bool) -> dict:
 
 
 def run_batch(
-        df: pd.DataFrame,
-        problem_col: str,
-        sub_stem_col: str,
-        quiet: bool,
-        output_dir: str,
+        df: pd.DataFrame, problem_col: str, quiet: bool, output_dir: str,
         max_workers: int = 4,
 ) -> None:
     total = len(df)
@@ -101,11 +97,11 @@ def run_batch(
     for idx, row in df.iterrows():
         idx += 2
         problem = str(row[problem_col]).strip()
-        if sub_stem_col:
-            sub_stem = str(row[problem_col]).strip()
-            if sub_stem:
-                sub_stem = sub_stem.replace("#%#", "")
-                problem = f"{problem}\n{sub_stem}"
+        sub_stem = str(row["subStem"]).strip()
+        # sub_stem = ''
+        if sub_stem:
+            sub_stem = sub_stem.replace("#%#", "\n")
+            problem = f"{problem}\n{sub_stem}"
         if not problem:
             logger.warning("[%s/%s] 跳过空题目 (row %s)", idx, total, idx)
             continue
@@ -127,15 +123,9 @@ def run_batch(
 
 def main() -> None:
     sheet = 0
-    # 输入Excel路径
-    input_path = r"/home/gc/solve/hw/hw_test_0206.xlsx"
-    # 输出路径
-    output_dir = r"/home/gc/solve/hw/hermes_0429"
-    # 题干列名
-    problem_col = '题干文本'
-    # 子题干列名（可以为空）
-    sub_stem_col = ''
-
+    input_path = r"/home/gc/solve/hw/inequality/questions_不等式.xlsx"
+    output_dir = r"/home/gc/solve/hw/inequality/hermes_0507"
+    problem_col = 'stem'
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     df = load_problems(input_path, sheet, problem_col)
@@ -146,12 +136,9 @@ def main() -> None:
         sheet,
         problem_col
     )
-    # 并发数
-    max_workers = 1
-    run_batch(
-        df, problem_col, sub_stem_col, False, output_dir,
-        max_workers=max_workers
-    )
+
+    max_workers = 5
+    run_batch(df, problem_col, False, output_dir, max_workers=max_workers)
 
 
 if __name__ == "__main__":

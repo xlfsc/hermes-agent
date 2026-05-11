@@ -19,9 +19,9 @@ providers:
 
 mcp_servers:
   solver:
-    command: E:\lab\trunk\hermes-agent\.venv\Scripts\python.exe
+    command: /home/gc/miniconda3/envs/hermes312/bin/python
     args:
-      - E:\lab\trunk\hermes-agent\solver_agent\solver_mcp_server.py
+      - /home/gc/serve/hermes-agent/solver_agent/solver_mcp_server.py
     env:
       SOLVER_API_BASE: http://172.168.80.46:8000
       SOLVER_SOLVE_TIMEOUT: '600'
