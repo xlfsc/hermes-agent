@@ -33,56 +33,46 @@ description: 自动并行调用不同大模型解答数学题，并利用逐步�
   - `prompt`：自定义解题提示词，可空使用服务端默认
 - **关键：两个调用必须放在同一个 function_calls 块中，利用底层并行执行，大幅缩短总耗时。**
 
-### 第三步：按一致性分支校验
-收集两个并行模型的解答后，先对比最终答案与关键推导步骤，按是否一致进入不同分支。
-
-#### 分支 A：两个解答一致
-- **只调用 Lean4 形式化校验**：`mcp_solver_verify_analysis_lean4(problem_text=..., solution_text=...)`
-- 根据返回分流：
-  - `success=true`（Lean4 判定正确）→ 直接进入第五步输出
-  - `success=false` 且 `stage ∈ {compile, semantic}` → 视为校验不通过，携带 `conclusion.first_error`、`conclusion.message` 进入第四步，将错误反馈给模型迭代解题
-  - `stage ∈ {formalization, system}` → 视为"无法形式化"，不足以否定一致解答；直接进入第五步输出，并在说明中注明"Lean4 未能形式化，仅凭双模型一致性输出"
-
-#### 分支 B：两个解答不一致
-- 对 **每个解答** 在同一个 function_calls 块中 **并行** 调用两个验证工具：
-  1. `mcp_solver_verify_analysis(stem_text=..., analysis=..., verify_platform="Qwen", verify_model="qwen3-235b-a22b")` — 基于 LLM 的自然语言逐步骤校验
-  2. `mcp_solver_verify_analysis_lean4(problem_text=..., solution_text=...)` — 基于 Lean4 的形式化校验
-- 两个工具是独立验证路径，**禁止串行**，同一回合内并发发出。
-- `verify_analysis`（Qwen 路）返回：
+### 第三步：双路并行验证（Qwen + Lean4，取并集）
+- 收集所有模型的解答后，对每个答案 **在同一个 function_calls 块中并行调用两个验证工具**：
+  1. `mcp_solver_verify_analysis(stem_text=..., analysis=..., verify_platform="Qwen", verify_model="qwen3-235b-a22b")` — 基于 LLM 的自然语言逐步骤校验。
+  2. `mcp_solver_verify_analysis_lean4(problem_text=..., solution_text=...)` — 基于 Lean4 的形式化校验，机器可证明级别。
+- 两个工具是 **独立的验证路径**，禁止串行；同一回合内并发发出即可。
+- **`verify_analysis`** 的返回（Qwen 路）：
   - 对每个步骤标注：`正确`、`错误` 或 `未知`
   - 若为 `错误`，附带 `错因`、`建议修正点`
   - 汇总各类计数与整体置信度
-- `verify_analysis_lean4`（Lean4 路）返回：
+- **`verify_analysis_lean4`** 的返回（Lean4 路）：
   - `success`：本次形式化校验是否整体通过（等价于 `not has_error`）
   - `stage`：失败所在阶段 `formalization` | `compile` | `semantic` | `system`
-  - `formalization.lean_code`：转换出的 Lean4 代码（通过即为正确性证据）
-  - `compile_check.compile_pass`、`semantic_check.semantic_pass`：两阶段布尔结果
+  - `formalization.lean_code`：转换出的 Lean4 代码（通过的话可作为正确性证据）
+  - `compile_check.compile_pass`、`semantic_check.semantic_pass`：两阶段的布尔结果
   - `conclusion.first_error`、`conclusion.message`：首条关键错误与总结
-- **合并校验结果（取并集）**：
-  - 两路都判为通过 → 该解答为"候选正解"
-  - 任一路报错 → 该步骤存疑，进入"待修正"列表
-  - Lean4 在 `formalization` 或 `system` 阶段失败视为"无法形式化"，不计入错误；以 Qwen 判定为准
-- 分流：
-  - 若恰有一个候选正解 → 进入第五步输出
-  - 否则把合并后的错误步骤、错因、修正建议作为反馈，进入第四步迭代解题
+- **结果取并集（联合判定）**：
+  - 只有当两路都判为通过时，该解答才算"形式上正确"
+  - 任一路报错即视为该步骤存疑，进入"待修正"列表
+  - Lean4 在 `formalization` 或 `system` 阶段失败时视为"无法形式化"，不计入错误；以 Qwen 的判定为准
+  - 只有所有步骤都通过两路校验时，该解答才标记为"候选正解"
+- **交叉验证要求**：
+  - 每个解答都要走完整的双路验证
+  - 若仅有一个候选正解，直接进入第五步输出
+  - 否则进入第四步迭代修正
 
 
 ### 第四步：迭代修正直到产生正解
-当第三步未产生候选正解时，按来源分支处理反馈并迭代：
+如果当前轮次没有找到任何"候选正解"（即所有解答均存在错误步骤），则执行以下迭代逻辑：
 
-1. **汇总错误与建议**：
-   - 若来自分支 A（仅 Lean4 报错）：提取 `conclusion.first_error`、`conclusion.message`，以及 `compile_check` / `semantic_check` 中定位到的具体错误点
-   - 若来自分支 B（Qwen + Lean4 合并）：合并两路的错误步骤、错因、修正建议并去重
+1. **汇总错误与建议**：收集所有 `verify_analysis` 返回的错误步骤、错因及修正建议，合并去重。
 2. **生成综合改进解答**：
    - 综合不同模型解答中的正确步骤片段
    - 根据修正建议修正错误步骤
-   - 若某些步骤所有模型均无法确定或矛盾，则标记为"待推理"，尝试用更强的验证模型（如 Qwen reasoning 模式）再次分析
-3. **反馈给模型再次解题**：
-   - 使用上一轮表现最好的模型，把汇总的错误与建议写入 `prompt`（例如"上一轮 Lean4 在 semantic 阶段报错：XXX，请重点检查第 N 步等价变换"），再次调用 `mcp_solver_solve_math_problem`
-   - 或直接使用综合改进后的解答作为新答案，回到第三步重新进入对应分支校验
-4. **再次按一致性分支校验**：新一轮解答仍按第三步"一致→仅 Lean4"、"不一致→双路并行"的策略校验。
+   - 若某些步骤所有模型均无法确定或矛盾，则将其标记为"待推理"，并尝试用更强的验证模型（如 Qwen 的 reasoning 模式）再次分析
+3. **重新调用解题工具（可选）**：
+   - 使用上一轮中表现最好的模型，结合汇总的修正提示，以更明确的 `prompt`（例如"请重点检查第 X 步的等价变换，避免出现 XX 类错误"）再次调用 `solve_math_problem`
+   - 或直接使用综合改进后的解答作为新的答案，并再次调用 `verify_analysis` 验证
+4. **再次验证**：对新生成的解答调用 `verify_analysis`，检查是否所有步骤均为正确。
 5. **终止条件**：
-   - 找到候选正解 → 停止迭代，输出该解
+   - 找到候选正解（所有步骤正确）→ 停止迭代，输出该解
    - 达到最大迭代次数（建议 3 轮）仍无正解 → 输出当前最接近正确的解答，并明确标出仍然存疑的步骤，供人工判断
 
 ### 第五步：输出最终答案与过程解释
@@ -123,11 +113,9 @@ DeepSeek 在处理 `acosθ + bsinθ` 的辅助角变换时，容易把 `Rcos(θ-
 
 ## 可调参数
 - 初始并行解题平台列表：`["DeepSeek", "Gemma"]`
-- 验证路径（按一致性分支）：
-  - 两解答一致 → 仅走形式化路 `verify_analysis_lean4`
-  - 两解答不一致 → 双路并行，取并集
-    - LLM 路：`verify_analysis`，平台 `Qwen`（`qwen3-235b-a22b`，专职校验，不参与解题）
-    - 形式化路：`verify_analysis_lean4`（Lean4 后端，无需指定模型）
+- 验证路径（双路并行，取并集）：
+  - LLM 路：`verify_analysis`，平台 `Qwen`（`qwen3-235b-a22b`，专职校验，不参与解题）
+  - 形式化路：`verify_analysis_lean4`（Lean4 后端，无需指定模型）
 - 平台与模型组合（解题）：
   - `DeepSeek` → `deepseek-v3.2`
   - `Gemma` → `gemma4`

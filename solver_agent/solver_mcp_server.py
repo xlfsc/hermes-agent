@@ -28,7 +28,7 @@ SOLVE_TIMEOUT = float(os.environ.get("SOLVER_SOLVE_TIMEOUT", "600"))
 VERIFY_TIMEOUT = float(os.environ.get("SOLVER_VERIFY_TIMEOUT", "300"))
 
 LEAN4_API_BASE = os.environ.get(
-    "LEAN4_API_BASE", "http://172.168.80.36:8008"
+    "LEAN4_API_BASE", "http://112.195.201.41:38008"
 ).rstrip("/")
 LEAN4_VERIFY_TIMEOUT = float(os.environ.get("LEAN4_VERIFY_TIMEOUT", "300"))
 
