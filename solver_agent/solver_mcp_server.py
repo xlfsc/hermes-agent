@@ -15,10 +15,37 @@ Tools exposed:
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
 from typing import Any, Optional
 
 import httpx
 from mcp.server.fastmcp import FastMCP
+
+# Allow ``from solver_agent.knowledge import ...`` when this module is invoked as
+# a standalone script (the MCP server is launched via ``python <path>.py``).
+_PKG_PARENT = Path(__file__).resolve().parent.parent
+if str(_PKG_PARENT) not in sys.path:
+    sys.path.insert(0, str(_PKG_PARENT))
+
+try:  # pragma: no cover - defensive: knowledge base is optional
+    from solver_agent.knowledge import fetch_injection, merge_prompt  # type: ignore
+    _KB_AVAILABLE = True
+except Exception as _kb_exc:  # pragma: no cover
+    _KB_AVAILABLE = False
+    _KB_IMPORT_ERROR = _kb_exc
+
+    def fetch_injection(*_args, **_kwargs):  # type: ignore
+        return {"prompt": "", "example": "", "matched_ids": [], "matched_count": 0}
+
+    def merge_prompt(a: str, b: str) -> str:  # type: ignore
+        a = (a or "").strip()
+        b = (b or "").strip()
+        if not a:
+            return b
+        if not b:
+            return a
+        return f"{a}\n\n{b}"
 
 
 API_BASE = os.environ.get("SOLVER_API_BASE", "http://172.168.80.46:8000").rstrip("/")
@@ -26,6 +53,10 @@ API_KEY = os.environ.get("SOLVER_API_KEY")
 
 SOLVE_TIMEOUT = float(os.environ.get("SOLVER_SOLVE_TIMEOUT", "600"))
 VERIFY_TIMEOUT = float(os.environ.get("SOLVER_VERIFY_TIMEOUT", "300"))
+
+AUTO_EXPERIENCE = os.environ.get("SOLVER_AUTO_EXPERIENCE", "1").lower() not in {"0", "false", "no", ""}
+KB_TOP_K = int(os.environ.get("SOLVER_KB_TOP_K", "3"))
+KB_USE_LLM_RANK = os.environ.get("SOLVER_KB_LLM_RANK", "1").lower() not in {"0", "false", "no", ""}
 
 PLATFORM_MODELS = {
     "Qwen":     ["qwen3-235b-a22b"],
@@ -105,6 +136,19 @@ async def solve_math_problem(
       cost_time:        耗时（秒）。
       solve_log:        中间日志（已截断）。
     """
+    # --- Knowledge base auto-injection ---
+    effective_prompt = prompt or ""
+    effective_example = example or ""
+    kb_meta: dict[str, Any] = {}
+    if AUTO_EXPERIENCE and text_input:
+        try:
+            inj = fetch_injection(text_input, top_k=KB_TOP_K, use_llm=KB_USE_LLM_RANK)
+            effective_prompt = merge_prompt(effective_prompt, inj.get("prompt", ""))
+            effective_example = merge_prompt(effective_example, inj.get("example", ""))
+            kb_meta = {"kb_matched_ids": inj.get("matched_ids", []), "kb_matched_count": inj.get("matched_count", 0)}
+        except Exception:
+            pass  # knowledge base failure must not block solving
+
     payload: dict[str, Any] = {
         "text_input": text_input,
         "solve_platform": solve_platform,
@@ -120,10 +164,10 @@ async def solve_math_problem(
         payload["image_base64"] = image_base64
     if url_image is not None:
         payload["url_image"] = url_image
-    if prompt:
-        payload["prompt"] = prompt
-    if example:
-        payload["example"] = example
+    if effective_prompt:
+        payload["prompt"] = effective_prompt
+    if effective_example:
+        payload["example"] = effective_example
 
     try:
         async with httpx.AsyncClient(timeout=SOLVE_TIMEOUT) as client:
@@ -154,6 +198,7 @@ async def solve_math_problem(
         "cost_money": data.get("cost_money"),
         "cost_time": data.get("cost_time"),
         "solve_log": _truncate(data.get("solve_log"), 4000),
+        **kb_meta,
     }
 
 
@@ -236,6 +281,42 @@ async def ping() -> dict:
         }
     except httpx.HTTPError as e:
         return {"ok": False, "error": str(e), "api_base": API_BASE}
+
+
+@mcp.tool()
+async def retrieve_experiences(problem: str, top_k: int = 3) -> dict:
+    """
+    从共享知识库检索与给定题目相关的历史经验。
+
+    返回与该题最相关的若干条经验摘要，可用于人工审阅或拼装到自定义 prompt 中。
+    注意：``solve_math_problem`` 在 SOLVER_AUTO_EXPERIENCE=1 时已经会自动检索并
+    注入经验，本工具用于 Agent 想显式查看注入了哪些经验、或基于经验进一步调整
+    策略时使用。
+
+    参数:
+      problem: 题干文本。
+      top_k:   返回条数上限。
+
+    返回 dict:
+      ok:             是否成功。
+      matched_count:  实际匹配的条数。
+      matched_ids:    经验 id 列表。
+      prompt:         可直接拼接到 solve_math_problem 的 prompt 文本。
+      example:        可直接拼接到 solve_math_problem 的 example 文本。
+    """
+    if not _KB_AVAILABLE:
+        return {"ok": False, "error": "knowledge_base_unavailable"}
+    try:
+        inj = fetch_injection(problem, top_k=top_k, use_llm=KB_USE_LLM_RANK)
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+    return {
+        "ok": True,
+        "matched_count": inj.get("matched_count", 0),
+        "matched_ids": inj.get("matched_ids", []),
+        "prompt": inj.get("prompt", ""),
+        "example": inj.get("example", ""),
+    }
 
 
 if __name__ == "__main__":

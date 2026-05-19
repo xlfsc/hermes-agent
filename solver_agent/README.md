@@ -421,3 +421,28 @@ batch_results/
 - **配置热更新**：修改 `hermes_home/config.yaml` 后必须重启进程才能生效。
 - **并发上限**：API 层 `ThreadPoolExecutor(max_workers=4)`，MCP stdio 子进程单连接排队，高并发场景需换 HTTP transport。
 - **多 skill 串联**：`default_skills` 列表里追加更多 skill 即可被同时预加载。
+
+---
+
+## 14. 经验自动注入（与 evo_solver_agent 协同）
+
+`solve_math_problem` MCP 工具在调用后端前会自动从共享知识库 `solver_agent/knowledge_base/`
+检索相关历史经验，并追加到调用方传入的 `prompt` / `example` 字段（不覆盖）。
+
+经验由姊妹 Agent **`evo_solver_agent`** 通过监督训练（题干 + 参考答案）持续沉淀：
+解题→校验→反思→重试→提炼，无论对错都写入。
+
+详见：
+- `evo_solver_agent/README.md` — 训练 Agent 使用说明
+- `solver_agent/knowledge_base/README.md` — 知识库格式与读写流程
+
+控制开关：
+| 变量 | 默认 | 作用 |
+|------|------|------|
+| `SOLVER_AUTO_EXPERIENCE` | `1` | 设为 `0` 关闭自动注入 |
+| `SOLVER_KB_TOP_K`        | `3` | 注入条数上限 |
+| `SOLVER_KB_LLM_RANK`     | `1` | 是否使用 LLM 对粗筛候选做语义重排 |
+| `SOLVER_KB_DIR`          | `solver_agent/knowledge_base` | 知识库目录覆盖 |
+
+新增 MCP 工具 `retrieve_experiences(problem, top_k)` 可由 Agent 显式查看
+当前题目会注入哪些经验（不实际调用解题）。
