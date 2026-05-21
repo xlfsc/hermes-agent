@@ -1,0 +1,40 @@
+version: 1
+disable_existing_loggers: false
+
+filters:
+  correlation_id:
+    (): asgi_correlation_id.CorrelationIdFilter
+
+formatters:
+  standard:
+    format: "%(asctime)s - %(levelname)s - %(correlation_id)s - %(name)s : %(message)s"
+  app_backend:
+    format: "%(asctime)s - %(levelname)s - %(correlation_id)s - %(name)s - line: %(lineno)s - %(funcName)s : %(message)s"
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    filters:
+      - correlation_id
+    formatter: standard
+    stream: ext://sys.stdout
+  app_backend:
+    class: logging.StreamHandler
+    filters:
+      - correlation_id
+    formatter: app_backend
+    stream: ext://sys.stdout
+
+loggers:
+  uvicorn:
+    error:
+      propagate: true
+  app-backend:
+    handlers:
+      - app_backend
+    propagate: no
+
+root:
+  level: INFO
+  handlers: [app_backend]
+  propagate: no

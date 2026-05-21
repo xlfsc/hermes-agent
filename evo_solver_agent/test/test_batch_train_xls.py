@@ -14,26 +14,29 @@ from __future__ import annotations
 
 import argparse
 import json
-import logging
+import logging.config
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import pandas as pd
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from evo_solver_agent.evo_solver import train
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+with open('../logging.yaml', mode='r', encoding='utf-8') as config_file:
+    logging_config = yaml.load(stream=config_file, Loader=yaml.FullLoader)
+    logging.config.dictConfig(config=logging_config)
+
 logger = logging.getLogger(__name__)
 
 
-def load_problems(path: str, sheet: int | str, problem_col: str, answer_col: str) -> pd.DataFrame:
+def load_problems(
+        path: str, sheet: int | str, problem_col: str, answer_col: str
+) -> pd.DataFrame:
     ext = Path(path).suffix.lower()
     if ext in (".xls",):
         df = pd.read_excel(path, sheet_name=sheet, engine="xlrd")
@@ -45,7 +48,9 @@ def load_problems(path: str, sheet: int | str, problem_col: str, answer_col: str
     return df
 
 
-def _train_one(idx: int, total: int, problem: str, reference_answer: str) -> dict:
+def _train_one(
+        idx: int, total: int, problem: str, reference_answer: str
+) -> dict:
     logger.info("[%s/%s] 开始训练: %s", idx, total, problem[:80])
     try:
         result = train(problem, reference_answer)
@@ -88,11 +93,11 @@ def _save_one(idx: int, result: dict, output_dir: str) -> None:
 
 
 def run_batch(
-    df: pd.DataFrame,
-    problem_col: str,
-    answer_col: str,
-    output_dir: str,
-    max_workers: int = 2,
+        df: pd.DataFrame,
+        problem_col: str,
+        answer_col: str,
+        output_dir: str,
+        max_workers: int = 2,
 ) -> dict:
     total = len(df)
     t0 = time.monotonic()
@@ -137,27 +142,50 @@ def run_batch(
         "elapsed_seconds": elapsed,
     }
     summary_path = Path(output_dir) / "summary.json"
-    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    summary_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     return summary
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="批量监督训练 evo_solver_agent")
-    parser.add_argument("--input", required=True, help="Excel 文件路径")
-    parser.add_argument("--output-dir", default="./train_results", help="输出目录")
-    parser.add_argument("--problem-col", default="题干文本", help="题干列名")
-    parser.add_argument("--answer-col", default="参考答案", help="参考答案列名")
-    parser.add_argument("--sheet", default=0, help="Sheet 名或索引")
-    parser.add_argument("--max-workers", type=int, default=2, help="并发数")
+    parser.add_argument(
+        "--input", required=False, help="Excel 文件路径",
+        default=r"F:\lab\hw\train\imo_random_200.xlsx"
+    )
+    parser.add_argument(
+        "--output-dir", help="输出目录",
+        default=r"F:\lab\hw\train\train_results_0521",
+    )
+    parser.add_argument(
+        "--problem-col", help="题干列名", default="stem_cn",
+    )
+    parser.add_argument(
+        "--answer-col", help="参考答案列名", default="answer",
+    )
+    parser.add_argument(
+        "--sheet", help="Sheet 名或索引", default=0
+    )
+    parser.add_argument(
+        "--max-workers", type=int, help="并发数", default=1,
+    )
     args = parser.parse_args()
 
-    sheet = int(args.sheet) if args.sheet.isdigit() else args.sheet
+    sheet = int(args.sheet)
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
     df = load_problems(args.input, sheet, args.problem_col, args.answer_col)
-    logger.info("读取 %s 行 (sheet=%s, problem=%s, answer=%s)", len(df), sheet, args.problem_col, args.answer_col)
 
-    run_batch(df, args.problem_col, args.answer_col, args.output_dir, max_workers=args.max_workers)
+    logger.info(
+        "读取 %s 行 (sheet=%s, problem=%s, answer=%s)", len(df), sheet,
+        args.problem_col, args.answer_col
+    )
+
+    run_batch(
+        df, args.problem_col, args.answer_col, args.output_dir,
+        max_workers=args.max_workers
+    )
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ verification results), this module:
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -31,6 +32,8 @@ from solver_agent.knowledge import (
     now_iso,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class Learner:
     """Stateless helper — all state lives in the caller (evo_solver)."""
@@ -42,7 +45,9 @@ class Learner:
     # Answer comparison
     # ------------------------------------------------------------------
 
-    def compare_answers(self, problem: str, candidate: str, reference: str) -> Dict[str, Any]:
+    def compare_answers(
+            self, problem: str, candidate: str, reference: str
+    ) -> Dict[str, Any]:
         """Semantic comparison: is the candidate answer equivalent to reference?
 
         Returns {"correct": bool, "reason": str}.
@@ -59,15 +64,25 @@ class Learner:
         )
         try:
             data = self.llm.chat_json(
-                [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user}
+                ],
                 temperature=0.0,
                 max_tokens=300,
             )
-            return {
+            result = {
                 "correct": bool(data.get("correct", False)),
                 "reason": str(data.get("reason", "")),
             }
+            logger.info(
+                "答案比对 | 是否正确=%s | 理由=%s",
+                result["correct"],
+                result["reason"][:120],
+            )
+            return result
         except Exception as exc:
+            logger.warning("答案比对失败: %s", exc)
             return {"correct": False, "reason": f"comparison_error: {exc}"}
 
     # ------------------------------------------------------------------
@@ -75,11 +90,11 @@ class Learner:
     # ------------------------------------------------------------------
 
     def reflect(
-        self,
-        problem: str,
-        reference_answer: str,
-        attempts: List[Dict[str, Any]],
-        verifications: List[Dict[str, Any]],
+            self,
+            problem: str,
+            reference_answer: str,
+            attempts: List[Dict[str, Any]],
+            verifications: List[Dict[str, Any]],
     ) -> str:
         """Produce a concise reflection to inject into the next solving round.
 
@@ -96,7 +111,8 @@ class Learner:
         attempts_summary = ""
         for idx, att in enumerate(attempts[-2:], 1):
             model = att.get("model", "?")
-            answer = (att.get("final_analysis") or att.get("analysis") or "")[:600]
+            answer = (att.get("final_analysis") or att.get("analysis") or "")[
+                     :600]
             attempts_summary += f"\n--- 尝试 {idx} ({model}) ---\n{answer}\n"
 
         verify_summary = ""
@@ -105,7 +121,7 @@ class Learner:
             errors = [r for r in results if r.get("verify_status") == "error"]
             if errors:
                 for e in errors[:3]:
-                    verify_summary += f"- 步骤{e.get('step_idx','?')}: {e.get('feedback_content','')[:200]}\n"
+                    verify_summary += f"- 步骤{e.get('step_idx', '?')}: {e.get('feedback_content', '')[:200]}\n"
 
         user = (
             f"题目:\n{problem.strip()[:1200]}\n\n"
@@ -116,12 +132,18 @@ class Learner:
         )
 
         try:
-            return self.llm.chat(
-                [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            text = self.llm.chat(
+                [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user}
+                ],
                 temperature=0.3,
                 max_tokens=600,
             )
+            logger.info(f"反思生成成功: {text}")
+            return text
         except Exception as exc:
+            logger.warning("反思生成失败: %s", exc)
             return f"[反思生成失败: {exc}]"
 
     # ------------------------------------------------------------------
@@ -129,15 +151,15 @@ class Learner:
     # ------------------------------------------------------------------
 
     def distill(
-        self,
-        problem: str,
-        reference_answer: str,
-        attempts: List[Dict[str, Any]],
-        verifications: List[Dict[str, Any]],
-        final_correct: bool,
-        rounds_used: int,
-        best_solution: str = "",
-        final_answer: str = "",
+            self,
+            problem: str,
+            reference_answer: str,
+            attempts: List[Dict[str, Any]],
+            verifications: List[Dict[str, Any]],
+            final_correct: bool,
+            rounds_used: int,
+            best_solution: str = "",
+            final_answer: str = "",
     ) -> Experience:
         """Distill the training episode into a reusable Experience record."""
 
@@ -155,7 +177,8 @@ class Learner:
         for idx, att in enumerate(attempts[-4:], 1):
             model = att.get("model", "?")
             correct = att.get("correct", "?")
-            answer = (att.get("final_analysis") or att.get("analysis") or "")[:400]
+            answer = (att.get("final_analysis") or att.get("analysis") or "")[
+                     :400]
             attempts_summary += f"\n[尝试{idx}] model={model} correct={correct}\n{answer}\n"
 
         verify_summary = ""
@@ -163,7 +186,7 @@ class Learner:
             results = v.get("verify_results", [])
             errors = [r for r in results if r.get("verify_status") == "error"]
             for e in errors[:2]:
-                verify_summary += f"- 步骤{e.get('step_idx','?')}: {e.get('feedback_content','')[:150]}\n"
+                verify_summary += f"- 步骤{e.get('step_idx', '?')}: {e.get('feedback_content', '')[:150]}\n"
 
         user = (
             f"题目:\n{problem.strip()[:1200]}\n\n"
@@ -177,16 +200,23 @@ class Learner:
 
         try:
             data = self.llm.chat_json(
-                [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user}
+                ],
                 temperature=0.1,
                 max_tokens=800,
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning("经验提炼 LLM 调用失败: %s", exc)
             data = {}
 
-        key_insights = data.get("key_insights", []) if isinstance(data, dict) else []
-        raw_eps = data.get("error_patterns", []) if isinstance(data, dict) else []
-        model_obs = data.get("model_observations", {}) if isinstance(data, dict) else {}
+        key_insights = data.get("key_insights", []) if isinstance(data,
+                                                                  dict) else []
+        raw_eps = data.get("error_patterns", []) if isinstance(data,
+                                                               dict) else []
+        model_obs = data.get("model_observations", {}) if isinstance(data,
+                                                                     dict) else {}
 
         error_patterns = []
         for ep in raw_eps:
@@ -200,7 +230,7 @@ class Learner:
         ts = now_iso()
         exp_id = make_experience_id(problem, ts)
 
-        return Experience(
+        experience = Experience(
             id=exp_id,
             ts=ts,
             problem=problem,
@@ -209,9 +239,20 @@ class Learner:
             reference_answer=reference_answer,
             final_correct=final_correct,
             rounds_used=rounds_used,
-            key_insights=list(key_insights) if isinstance(key_insights, list) else [],
+            key_insights=list(key_insights) if isinstance(key_insights,
+                                                          list) else [],
             error_patterns=error_patterns,
             best_solution=best_solution,
             final_answer=final_answer,
-            model_observations=dict(model_obs) if isinstance(model_obs, dict) else {},
+            model_observations=dict(model_obs) if isinstance(model_obs,
+                                                             dict) else {},
         )
+        logger.info(
+            "经验提炼成功 | id=%s | 是否正确=%s | 轮数=%d | 洞察数=%d | 错误模式数=%d",
+            exp_id,
+            final_correct,
+            rounds_used,
+            len(experience.key_insights),
+            len(error_patterns),
+        )
+        return experience

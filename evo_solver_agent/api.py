@@ -11,18 +11,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from evo_solver_agent.evo_solver import train
+from evo_solver_agent.evo_solver import atrain
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Evo Solver Agent", version="0.1.0")
-_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="evo")
 
 
 # ---------------------------------------------------------------------------
@@ -70,16 +68,28 @@ def health() -> dict:
 
 @app.post("/train", response_model=TrainResponse)
 async def train_endpoint(req: TrainRequest) -> TrainResponse:
-    loop = asyncio.get_running_loop()
+    logger.info(
+        "/train 收到请求 | 题干长度=%d | 参考答案长度=%d",
+        len(req.problem),
+        len(req.reference_answer)
+    )
     try:
-        result = await loop.run_in_executor(
-            _pool, lambda: train(req.problem, req.reference_answer)
-        )
+        result = await atrain(req.problem, req.reference_answer)
     except ValueError as exc:
+        logger.warning("/train 请求参数错误: %s", exc)
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        logger.exception("train failed")
-        raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}")
+        logger.exception("训练失败")
+        raise HTTPException(
+            status_code=500,
+            detail=f"{type(exc).__name__}: {exc}"
+        )
+    logger.info(
+        "/train 完成 | 是否正确=%s | 轮数=%d | 经验ID=%s",
+        result.get("correct"),
+        result.get("rounds_used", 0),
+        result.get("experience_id", ""),
+    )
     return TrainResponse(
         ok=result.get("ok", False),
         correct=result.get("correct", False),
@@ -94,50 +104,63 @@ async def train_endpoint(req: TrainRequest) -> TrainResponse:
 
 @app.post("/batch", response_model=BatchTrainResponse)
 async def batch_train_endpoint(req: BatchTrainRequest) -> BatchTrainResponse:
-    loop = asyncio.get_running_loop()
-    batch_pool = ThreadPoolExecutor(max_workers=req.max_workers, thread_name_prefix="evo-batch")
+    logger.info(
+        "/batch 收到请求 | 样本数=%d | 最大并发=%d",
+        len(req.items),
+        req.max_workers
+    )
+    sem = asyncio.Semaphore(req.max_workers)
 
-    def _one(item: TrainRequest) -> Dict[str, Any]:
-        try:
-            return train(item.problem, item.reference_answer)
-        except Exception as exc:
-            return {
-                "ok": False,
-                "correct": False,
-                "rounds_used": 0,
-                "elapsed_seconds": 0.0,
-                "experience_id": "",
-                "final_answer": "",
-                "reference_answer": item.reference_answer,
-                "round_logs": [],
-                "error": str(exc),
-            }
+    async def _one(item: TrainRequest) -> Dict[str, Any]:
+        async with sem:
+            try:
+                return await atrain(item.problem, item.reference_answer)
+            except Exception as exc:
+                logger.exception("批量训练单条失败")
+                return {
+                    "ok": False,
+                    "correct": False,
+                    "rounds_used": 0,
+                    "elapsed_seconds": 0.0,
+                    "experience_id": "",
+                    "final_answer": "",
+                    "reference_answer": item.reference_answer,
+                    "round_logs": [],
+                    "error": str(exc),
+                }
 
-    futures = [loop.run_in_executor(batch_pool, _one, item) for item in req.items]
-    raw_results = await asyncio.gather(*futures)
-    batch_pool.shutdown(wait=False)
+    raw_results = await asyncio.gather(*[_one(item) for item in req.items])
 
     results: List[TrainResponse] = []
     correct_count = 0
     for r in raw_results:
         if r.get("correct"):
             correct_count += 1
-        results.append(TrainResponse(
-            ok=r.get("ok", False),
-            correct=r.get("correct", False),
-            rounds_used=r.get("rounds_used", 0),
-            elapsed_seconds=r.get("elapsed_seconds", 0.0),
-            experience_id=r.get("experience_id", ""),
-            final_answer=r.get("final_answer", ""),
-            reference_answer=r.get("reference_answer", ""),
-            round_logs=r.get("round_logs", []),
-        ))
+        results.append(
+            TrainResponse(
+                ok=r.get("ok", False),
+                correct=r.get("correct", False),
+                rounds_used=r.get("rounds_used", 0),
+                elapsed_seconds=r.get("elapsed_seconds", 0.0),
+                experience_id=r.get("experience_id", ""),
+                final_answer=r.get("final_answer", ""),
+                reference_answer=r.get("reference_answer", ""),
+                round_logs=r.get("round_logs", []),
+            )
+        )
 
     total = len(results)
+    accuracy = correct_count / total if total > 0 else 0.0
+    logger.info(
+        "/batch 完成 | 总数=%d | 正确数=%d | 准确率=%.3f",
+        total,
+        correct_count,
+        accuracy,
+    )
     return BatchTrainResponse(
         total=total,
         correct_count=correct_count,
-        accuracy=correct_count / total if total > 0 else 0.0,
+        accuracy=accuracy,
         results=results,
     )
 

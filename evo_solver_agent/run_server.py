@@ -26,12 +26,15 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
+logger = logging.getLogger(__name__)
+
 import uvicorn  # noqa: E402
 
 
 def main() -> None:
     host = os.getenv("EVO_HOST", "0.0.0.0")
     port = int(os.getenv("EVO_PORT", "8766"))
+    logger.info("evo_solver_agent 启动 | 主机=%s | 端口=%d", host, port)
     uvicorn.run(
         "evo_solver_agent.api:app",
         host=host,
