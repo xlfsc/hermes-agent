@@ -48,7 +48,7 @@ class _TracingBridge:
     def on_stream_delta(self, text: str | None) -> None:
         if text is None:
             self._flush_text()
-            logger.info("agent turn boundary")
+            logger.info("Agent 轮次边界")
             self._emit({"type": "turn_boundary"})
             return
         if not text:
@@ -58,11 +58,11 @@ class _TracingBridge:
             line, self._buffer = self._buffer.split("\n", 1)
             line = line.strip()
             if line:
-                logger.info("agent text: %s", line)
+                logger.info("Agent 文本输出 | 内容=%s", line)
 
     def on_tool_gen_start(self, tool_name: str) -> None:
         self._flush_text()
-        logger.info("agent preparing tool: %s", tool_name)
+        logger.info("Agent 准备调用工具 | 工具=%s", tool_name)
         self._emit({"type": "tool_gen", "tool_name": tool_name})
 
     def on_tool_start(
@@ -70,7 +70,7 @@ class _TracingBridge:
     ) -> None:
         self._flush_text()
         logger.info(
-            "agent tool start: %s id=%s args=%s",
+            "Agent 工具调用开始 | 工具=%s | 调用ID=%s | 参数=%s",
             tool_name, tool_call_id,
             json.dumps(args, ensure_ascii=False, sort_keys=True),
         )
@@ -89,9 +89,10 @@ class _TracingBridge:
         if len(preview) > 500:
             preview = preview[:500] + "..."
         logger.info(
-            "agent tool complete: %s id=%s result=%s",
+            "Agent 工具调用完成 | 工具=%s | 调用ID=%s | 返回长度=%d | 返回摘要=%s",
             tool_name,
             tool_call_id,
+            len(result),
             preview[:400]
         )
         self._emit({
@@ -104,14 +105,14 @@ class _TracingBridge:
 
     def on_status(self, level: str, message: str) -> None:
         self._flush_text()
-        logger.info("agent status[%s]: %s", level, message)
+        logger.info("Agent 状态事件 | 级别=%s | 消息=%s", level, message)
         self._emit({"type": "status", "level": level, "message": message})
 
     def on_step(self, api_call_count: int, prev_tools: list[dict]) -> None:
         self._flush_text()
         tool_names = [t.get("name") for t in prev_tools if isinstance(t, dict)]
         logger.info(
-            "agent step: api_call=%s previous_tools=%s",
+            "Agent 推进一步 | API调用次数=%s | 上一步工具=%s",
             api_call_count,
             tool_names
         )
@@ -126,7 +127,7 @@ class _TracingBridge:
     def _flush_text(self) -> None:
         text = self._buffer.strip()
         if text:
-            logger.info("agent text: %s", text)
+            logger.info("Agent 文本输出 | 内容=%s", text)
             self._emit({"type": "text", "content": text})
         self._buffer = ""
 
@@ -137,7 +138,7 @@ class _TracingBridge:
 def _make_clarify_callback(bridge: _TracingBridge | None):
     def _callback(question: str, choices=None) -> str:
         logger.info(
-            "agent clarify requested: question=%s choices=%s",
+            "Agent 请求澄清 | 问题=%s | 备选=%s",
             question,
             choices
         )
@@ -168,6 +169,10 @@ def solve(problem: str, *, quiet: bool = False) -> Dict[str, Any]:
         raise ValueError("problem is empty")
 
     trace_id = f"trc_{uuid.uuid4().hex[:12]}"
+    logger.info(
+        "收到解题请求 | trace_id=%s | quiet=%s | 题干长度=%d",
+        trace_id, quiet, len(problem)
+    )
 
     previous_disable_level = logging.root.manager.disable
     if quiet:
@@ -180,15 +185,21 @@ def solve(problem: str, *, quiet: bool = False) -> Dict[str, Any]:
     from run_agent import AIAgent
 
     cfg = load_config()
+    logger.info("已加载 Hermes 配置 | HERMES_HOME=%s", os.environ.get("HERMES_HOME"))
     model_cfg = cfg.get("model") or {}
     if isinstance(model_cfg, str):
         effective_model = model_cfg
     else:
         effective_model = model_cfg.get("default") or model_cfg.get(
             "model") or "gemma4"
+    logger.info("使用模型 | model=%s", effective_model)
 
     custom_entries = get_compatible_custom_providers(cfg)
     if not custom_entries:
+        logger.error(
+            "config.yaml 缺少 custom_providers 条目 | 期望路径=%s",
+            os.path.join(SOLVER_HOME, "config.yaml"),
+        )
         raise RuntimeError(
             "No custom_providers entry in config.yaml. "
             f"Expected one in {SOLVER_HOME / 'config.yaml'}."
@@ -199,6 +210,9 @@ def solve(problem: str, *, quiet: bool = False) -> Dict[str, Any]:
         target_model=effective_model,
     )
     if not runtime.get("base_url"):
+        logger.warning(
+            "runtime_provider 未解析到 base_url，回退到 custom_providers 主条目"
+        )
         runtime = {
             "provider": "custom",
             "api_mode": "chat_completions",
@@ -206,23 +220,33 @@ def solve(problem: str, *, quiet: bool = False) -> Dict[str, Any]:
             "api_key": primary.get("api_key") or "no-key-required",
             "credential_pool": None,
         }
+    logger.info(
+        "运行时已解析 | provider=%s | api_mode=%s | base_url=%s",
+        runtime.get("provider"),
+        runtime.get("api_mode"),
+        runtime.get("base_url"),
+    )
 
     enabled_toolsets = sorted(_get_platform_tools(cfg, "cli"))
+    logger.info("启用的工具集 | 数量=%d | 列表=%s", len(enabled_toolsets), enabled_toolsets)
 
     skill_names = cfg.get("default_skills") or ["multi-model-math-solving"]
     skills_prompt, loaded, missing = build_preloaded_skills_prompt(skill_names)
     if missing:
+        logger.error(
+            "缺失技能 | 目录=%s | 缺失=%s", SOLVER_SKILLS_DIR, missing
+        )
         raise RuntimeError(
             f"Skill(s) not found in {SOLVER_SKILLS_DIR}: {missing}"
         )
-    logger.info("Preloaded skills: %s", loaded)
+    logger.info("已预加载技能 | 列表=%s", loaded)
 
     bridge = _TracingBridge()
     devnull = open(os.devnull, "w") if quiet else None
 
     started = time.monotonic()
     logger.info(
-        "solve started: trace_id=%s model=%s provider=%s quiet=%s problem_chars=%s",
+        "解题流程开始 | trace_id=%s | model=%s | provider=%s | quiet=%s | 题干长度=%s",
         trace_id, effective_model,
         runtime.get("provider"),
         quiet,
@@ -238,6 +262,7 @@ def solve(problem: str, *, quiet: bool = False) -> Dict[str, Any]:
             ctx_stderr.__enter__()
 
         try:
+            logger.info("开始构建 AIAgent | trace_id=%s", trace_id)
             agent = AIAgent(
                 api_key=runtime.get("api_key"),
                 base_url=runtime.get("base_url"),
@@ -258,13 +283,33 @@ def solve(problem: str, *, quiet: bool = False) -> Dict[str, Any]:
                 step_callback=bridge.on_step,
             )
             agent.suppress_status_output = True
+            try:
+                _tool_names = sorted(getattr(agent, "valid_tool_names", []) or [])
+                logger.info(
+                    "AIAgent 工具集就绪 | trace_id=%s | 工具数=%d | 工具列表=%s",
+                    trace_id, len(_tool_names), _tool_names,
+                )
+            except Exception:
+                logger.exception("打印工具列表失败 | trace_id=%s", trace_id)
+            logger.info("AIAgent 构建完成，进入对话 | trace_id=%s", trace_id)
 
             conv_result = agent.run_conversation(problem) or {}
             bridge.flush()
+            logger.info(
+                "对话结束 | trace_id=%s | completed=%s | api_calls=%s | input_tokens=%s | output_tokens=%s",
+                trace_id,
+                conv_result.get("completed"),
+                conv_result.get("api_calls"),
+                conv_result.get("input_tokens"),
+                conv_result.get("output_tokens"),
+            )
         finally:
             if quiet:
                 ctx_stderr.__exit__(None, None, None)
                 ctx_stdout.__exit__(None, None, None)
+    except Exception:
+        logger.exception("解题流程异常 | trace_id=%s", trace_id)
+        raise
     finally:
         if devnull is not None:
             try:
@@ -277,7 +322,7 @@ def solve(problem: str, *, quiet: bool = False) -> Dict[str, Any]:
     answer = conv_result.get("final_response") or ""
     elapsed = time.monotonic() - started
     logger.info(
-        "solve finished: trace_id=%s elapsed_seconds=%.3f answer_chars=%s",
+        "解题流程结束 | trace_id=%s | 耗时=%.3fs | 答案长度=%s",
         trace_id, elapsed, len(answer)
     )
 
@@ -334,6 +379,6 @@ def _write_trace(
             json.dumps(trace, ensure_ascii=False, indent=2, default=str),
             encoding="utf-8",
         )
-        logger.info("trace written: %s", trace_path)
+        logger.info("trace 已写入 | 路径=%s", trace_path)
     except Exception:
-        logger.exception("failed to write trace %s", trace_id)
+        logger.exception("trace 写入失败 | trace_id=%s", trace_id)

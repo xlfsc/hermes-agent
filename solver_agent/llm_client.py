@@ -9,10 +9,14 @@ can be overridden via env vars so the same module can serve multiple roles
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any, Dict, List, Optional
 
 import requests
+
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_BASE_URL = "http://171.214.10.150:11600/v1/"
@@ -59,13 +63,27 @@ class LLMClient:
             "Authorization": f"Bearer {self.api_key}",
         }
 
-        resp = requests.post(url, json=payload, headers=headers, timeout=self.timeout)
-        resp.raise_for_status()
+        logger.info(
+            "调用 LLM | URL=%s | 模型=%s | 消息数=%d | temperature=%s | max_tokens=%s | json=%s",
+            url, self.model, len(messages), temperature, max_tokens, response_format_json,
+        )
+        try:
+            resp = requests.post(url, json=payload, headers=headers, timeout=self.timeout)
+            resp.raise_for_status()
+        except requests.RequestException as exc:
+            logger.warning("LLM 请求失败 | URL=%s | 错误=%s", url, exc)
+            raise
         data = resp.json()
         try:
-            return data["choices"][0]["message"]["content"] or ""
+            content = data["choices"][0]["message"]["content"] or ""
         except (KeyError, IndexError, TypeError) as exc:
+            logger.warning("LLM 响应结构异常 | data=%r", data)
             raise RuntimeError(f"unexpected LLM response shape: {data!r}") from exc
+        logger.info(
+            "LLM 响应成功 | 模型=%s | 状态码=%d | 输出长度=%d",
+            self.model, resp.status_code, len(content),
+        )
+        return content
 
     def chat_json(
         self,
@@ -94,5 +112,7 @@ class LLMClient:
             start = text.find("{")
             end = text.rfind("}")
             if start != -1 and end != -1 and end > start:
+                logger.info("LLM JSON 解析回退到大括号截取")
                 return json.loads(text[start : end + 1])
+            logger.warning("LLM JSON 解析失败 | 原始片段=%s", text[:200])
             raise

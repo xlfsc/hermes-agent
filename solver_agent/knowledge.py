@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import threading
@@ -30,6 +31,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .llm_client import LLMClient
+
+
+logger = logging.getLogger(__name__)
 
 
 _DEFAULT_KB_DIR = Path(__file__).resolve().parent / "knowledge_base"
@@ -160,6 +164,10 @@ def load_experiences(force_reload: bool = False) -> List[Experience]:
         _cache["experiences"] = experiences
         _cache["mtime"] = mtime
         _cache["path"] = str(path)
+        logger.info(
+            "加载经验库 | 路径=%s | 条目数=%d | 强制重载=%s",
+            path, len(experiences), force_reload,
+        )
         return list(experiences)
 
 
@@ -182,6 +190,10 @@ def add_experience(exp: Experience) -> Experience:
     with _cache_lock:
         _cache["mtime"] = 0.0
         _cache["path"] = ""
+    logger.info(
+        "经验已写入知识库 | id=%s | 题型=%s | 是否正确=%s",
+        exp.id, exp.problem_type, exp.final_correct,
+    )
     return exp
 
 
@@ -280,6 +292,7 @@ def keyword_prefilter(problem: str, candidates_limit: int = 12) -> List[Experien
     query_type = infer_problem_type(problem)
     experiences = load_experiences()
     if not experiences:
+        logger.info("关键字预筛 | 经验库为空，跳过")
         return []
     scored: List[tuple[int, Experience]] = []
     for exp in experiences:
@@ -289,7 +302,12 @@ def keyword_prefilter(problem: str, candidates_limit: int = 12) -> List[Experien
         if score > 0:
             scored.append((score, exp))
     scored.sort(key=lambda t: (t[0], t[1].ts), reverse=True)
-    return [exp for _, exp in scored[:candidates_limit]]
+    out = [exp for _, exp in scored[:candidates_limit]]
+    logger.info(
+        "关键字预筛完成 | 题型=%s | 关键字数=%d | 候选总数=%d | 入选=%d",
+        query_type or "未识别", len(query_kws), len(experiences), len(out),
+    )
+    return out
 
 
 def llm_rank(
@@ -325,17 +343,22 @@ def llm_rank(
         "若没有任何条目相关，则返回 {\"selected\": []}。"
     )
 
+    logger.info(
+        "调用 LLM 重排经验 | 候选数=%d | top_k=%d", len(candidates), top_k,
+    )
     try:
         data = llm.chat_json(
             [{"role": "system", "content": system}, {"role": "user", "content": user}],
             temperature=0.0,
             max_tokens=400,
         )
-    except Exception:
+    except Exception as exc:
+        logger.warning("LLM 重排失败，回退到关键字顺序 | 错误=%s", exc)
         return candidates[:top_k]
 
     selected_idx = data.get("selected") if isinstance(data, dict) else None
     if not isinstance(selected_idx, list):
+        logger.warning("LLM 重排返回格式异常，使用关键字顺序前 %d 条", top_k)
         return candidates[:top_k]
 
     out: List[Experience] = []
@@ -350,6 +373,7 @@ def llm_rank(
             seen.add(i)
         if len(out) >= top_k:
             break
+    logger.info("LLM 重排完成 | 最终保留=%d", len(out) or min(len(candidates), top_k))
     return out or candidates[:top_k]
 
 
@@ -364,9 +388,15 @@ def retrieve_experiences(
 
     candidates = keyword_prefilter(problem, candidates_limit=12)
     if not candidates:
+        logger.info("经验检索结束 | 关键字预筛无命中")
         return []
     if not use_llm or len(candidates) <= top_k:
-        return candidates[:top_k]
+        out = candidates[:top_k]
+        logger.info(
+            "经验检索结束 | 跳过 LLM 重排 | 返回=%d (use_llm=%s)",
+            len(out), use_llm,
+        )
+        return out
     return llm_rank(problem, candidates, top_k=top_k, llm=llm)
 
 
@@ -449,6 +479,10 @@ def fetch_injection(
     inj = build_injection_text(exps)
     inj["matched_ids"] = [e.id for e in exps]
     inj["matched_count"] = len(exps)
+    logger.info(
+        "经验注入构建完成 | 命中=%d | prompt长度=%d | example长度=%d",
+        len(exps), len(inj.get("prompt") or ""), len(inj.get("example") or ""),
+    )
     return inj
 
 

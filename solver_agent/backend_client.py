@@ -54,6 +54,10 @@ class BackendClient:
             self, path: str, payload: Dict[str, Any], timeout: int
     ) -> Dict[str, Any]:
         url = f"{self.base_url}{path}"
+        logger.info(
+            "发起后端请求 | 路径=%s | 超时=%ds | 字段数=%d",
+            path, timeout, len(payload),
+        )
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.post(
@@ -110,6 +114,11 @@ class BackendClient:
 
         if isinstance(data, dict) and "ok" not in data:
             data["ok"] = True
+        logger.info(
+            "后端请求成功 | 路径=%s | 状态码=%d | 响应字段数=%s",
+            path, resp.status_code,
+            len(data) if isinstance(data, dict) else "n/a",
+        )
         return data
 
     async def solve_problem(
@@ -129,6 +138,10 @@ class BackendClient:
             prompt: str = "",
             example: str = "",
     ) -> Dict[str, Any]:
+        logger.info(
+            "调用 solve_problem | 平台=%s | 模型=%s | 题干长度=%d | 校验=%s | 思维链=%s",
+            solve_platform, solve_model, len(text_input or ""), verify, thinking,
+        )
         payload: Dict[str, Any] = {
             "text_input": text_input,
             "image_base64": image_base64 or "",
@@ -156,6 +169,10 @@ class BackendClient:
             verify_platform: str = "Qwen",
             verify_model: str = "qwen3-235b-a22b",
     ) -> Dict[str, Any]:
+        logger.info(
+            "调用 verify_analysis | 平台=%s | 模型=%s | 题干长度=%d | 解析长度=%d",
+            verify_platform, verify_model, len(stem_text or ""), len(analysis or ""),
+        )
         payload = {
             "stem_text": stem_text,
             "analysis": analysis,
@@ -168,14 +185,20 @@ class BackendClient:
 
     async def health(self) -> Dict[str, Any]:
         url = f"{self.base_url}/api/health"
+        logger.info("发起后端健康检查 | URL=%s", url)
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.get(url, headers=self._headers())
             ok = resp.status_code < 400
+            logger.info(
+                "后端健康检查完成 | 状态码=%d | ok=%s",
+                resp.status_code, ok,
+            )
             return {
                 "ok": ok,
                 "status_code": resp.status_code,
                 "body": resp.text[:500]
             }
         except httpx.RequestError as exc:
+            logger.warning("后端健康检查失败 | 错误=%s", exc)
             return {"ok": False, "error": str(exc)}

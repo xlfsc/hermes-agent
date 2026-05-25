@@ -34,6 +34,10 @@ import uvicorn  # noqa: E402
 def main() -> None:
     host = os.getenv("SOLVER_HOST", "0.0.0.0")
     port = int(os.getenv("SOLVER_PORT", "8765"))
+    logger.info(
+        "启动 Solver 服务 | host=%s | port=%d | HERMES_HOME=%s",
+        host, port, os.environ.get("HERMES_HOME"),
+    )
     uvicorn.run(
         "solver_agent.api:app",
         host=host,

@@ -17,12 +17,12 @@ description: 自动并行调用不同大模型解答数学题，并利用逐步�
 ### 第二步：并行调用不同模型解题
 - **必须在同一个 function_calls 块中同时发起两个 `mcp_solver_solve_math_problem` 调用**，实现真正的并行执行，禁止串行逐个调用。
 - 两个调用分别为：
-  1. `mcp_solver_solve_math_problem(text_input=..., solve_platform="DeepSeek", solve_model="deepseek-v3.2", thinking=true)`
-  2. `mcp_solver_solve_math_problem(text_input=..., solve_platform="Gemma", solve_model="gemma4", thinking=true)`
+  1. `mcp_solver_solve_math_problem(text_input=..., solve_platform="DeepSeek", solve_model="deepseek-v3.2", thinking=false)`
+  2. `mcp_solver_solve_math_problem(text_input=..., solve_platform="Gemma", solve_model="gemma4", thinking=false)`
 - **禁止使用 delegate_task 串行调用**，直接在一个回合内并发发出两个 MCP 工具调用即可。
 - 等待所有调用返回后，进入第三步。
 
-- 工具名称：`mcp_solver_solve_math_problem`
+- 工具名称：`mcp_solver_solve_math_problem`（MCP server `solver` 暴露的工具，注册时被加上 `mcp_solver_` 前缀）
 - 参数说明：
   - `text_input`：题目文本
   - `solve_platform`：平台名，可选 `"DeepSeek"`、`"Gemma"`
@@ -34,14 +34,14 @@ description: 自动并行调用不同大模型解答数学题，并利用逐步�
 - **关键：两个调用必须放在同一个 function_calls 块中，利用底层并行执行，大幅缩短总耗时。**
 
 ### 第三步：逐步骤验证与交叉验证
-- 收集所有模型的解答后，对每个答案调用 `verify_analysis` 进行精细化校验。
-- 工具名称：`verify_analysis`
+- 收集所有模型的解答后，对每个答案调用 `mcp_solver_verify_analysis` 进行精细化校验。
+- 工具名称：`mcp_solver_verify_analysis`（MCP server `solver` 暴露的工具，注册时被加上 `mcp_solver_` 前缀）
 - 参数说明：
   - `stem_text`：原题文本
   - `analysis`：需要验证的某一模型的完整解答
   - `verify_platform`：**统一使用 `"Qwen"` 作为验证平台**（Qwen 不参与解题，专职校验，保证验证独立性）
   - `verify_model`：`qwen3-235b-a22b`
-- **`verify_analysis` 的返回格式**：
+- **`mcp_solver_verify_analysis` 的返回格式**：
   - 对解答中的每个逻辑/计算步骤，标注状态：`正确`、`错误` 或 `未知`
   - 若步骤为 `错误`，会额外输出：
     - `错因`：指出具体错误类型（计算错误、逻辑断裂、条件误用等）
@@ -61,9 +61,9 @@ description: 自动并行调用不同大模型解答数学题，并利用逐步�
    - 根据修正建议修正错误步骤
    - 若某些步骤所有模型均无法确定或矛盾，则将其标记为"待推理"，并尝试用更强的验证模型（如 Qwen 的 reasoning 模式）再次分析
 3. **重新调用解题工具（可选）**：
-   - 使用上一轮中表现最好的模型，结合汇总的修正提示，以更明确的 `prompt`（例如"请重点检查第 X 步的等价变换，避免出现 XX 类错误"）再次调用 `solve_math_problem`
-   - 或直接使用综合改进后的解答作为新的答案，并再次调用 `verify_analysis` 验证
-4. **再次验证**：对新生成的解答调用 `verify_analysis`，检查是否所有步骤均为正确。
+   - 使用上一轮中表现最好的模型，结合汇总的修正提示，以更明确的 `prompt`（例如"请重点检查第 X 步的等价变换，避免出现 XX 类错误"）再次调用 `mcp_solver_solve_math_problem`
+   - 或直接使用综合改进后的解答作为新的答案，并再次调用 `mcp_solver_verify_analysis` 验证
+4. **再次验证**：对新生成的解答调用 `mcp_solver_verify_analysis`，检查是否所有步骤均为正确。
 5. **终止条件**：
    - 找到候选正解（所有步骤正确）→ 停止迭代，输出该解
    - 达到最大迭代次数（建议 3 轮）仍无正解 → 输出当前最接近正确的解答，并明确标出仍然存疑的步骤，供人工判断
@@ -86,7 +86,7 @@ description: 自动并行调用不同大模型解答数学题，并利用逐步�
 ## 常见陷阱与经验
 
 ### 模型分歧时优先用数值验证
-当模型在某个选项上产生分歧（如 2:1），不要只依赖 `verify_analysis`（它对辅助角公式等变换的校验能力有限）。用 `execute_code` 做 Python 数值代入验证，几行代码就能确认哪个模型对：
+当模型在某个选项上产生分歧（如 2:1），不要只依赖 `mcp_solver_verify_analysis`（它对辅助角公式等变换的校验能力有限）。用 `execute_code` 做 Python 数值代入验证，几行代码就能确认哪个模型对：
 ```python
 import math
 # 直接代入已知值验证等式是否成立

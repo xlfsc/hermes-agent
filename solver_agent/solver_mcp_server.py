@@ -14,6 +14,8 @@ Tools exposed:
 """
 from __future__ import annotations
 
+import json
+import logging
 import os
 import sys
 from pathlib import Path
@@ -21,6 +23,34 @@ from typing import Any, Optional
 
 import httpx
 from mcp.server.fastmcp import FastMCP
+
+# stdio 子进程里默认没有 logging 配置，INFO 不会输出。
+# 同时把日志写到 stderr（父进程会重定向到 hermes_home/logs/mcp-stderr.log）
+# 和 solver_agent/log/solver_mcp_server.log（独立文件，方便直接 tail）。
+_LOG_LEVEL = os.environ.get("SOLVER_MCP_LOG_LEVEL", "INFO").upper()
+_LOG_DIR = Path(__file__).resolve().parent / "log"
+_LOG_DIR.mkdir(parents=True, exist_ok=True)
+_LOG_FILE = _LOG_DIR / "solver_mcp_server.log"
+
+_log_formatter = logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(name)s pid=%(process)d : %(message)s"
+)
+_stderr_handler = logging.StreamHandler(sys.stderr)
+_stderr_handler.setFormatter(_log_formatter)
+_file_handler = logging.FileHandler(_LOG_FILE, encoding="utf-8")
+_file_handler.setFormatter(_log_formatter)
+
+_root_logger = logging.getLogger()
+_root_logger.setLevel(getattr(logging, _LOG_LEVEL, logging.INFO))
+# force=True 等价：清空已有 handler 再装
+for _h in list(_root_logger.handlers):
+    _root_logger.removeHandler(_h)
+_root_logger.addHandler(_stderr_handler)
+_root_logger.addHandler(_file_handler)
+
+logger = logging.getLogger(__name__)
+logger.info("solver_mcp_server 日志初始化完成 | 日志文件=%s | 级别=%s", _LOG_FILE, _LOG_LEVEL)
+
 
 # Allow ``from solver_agent.knowledge import ...`` when this module is invoked as
 # a standalone script (the MCP server is launched via ``python <path>.py``).
@@ -34,6 +64,7 @@ try:  # pragma: no cover - defensive: knowledge base is optional
 except Exception as _kb_exc:  # pragma: no cover
     _KB_AVAILABLE = False
     _KB_IMPORT_ERROR = _kb_exc
+    logger.warning("知识库模块加载失败，将使用空注入 | 错误=%s", _kb_exc)
 
     def fetch_injection(*_args, **_kwargs):  # type: ignore
         return {"prompt": "", "example": "", "matched_ids": [], "matched_count": 0}
@@ -66,6 +97,10 @@ PLATFORM_MODELS = {
 
 mcp = FastMCP("solver")
 
+logger.info(
+    "Solver MCP server 启动 | API_BASE=%s | AUTO_EXPERIENCE=%s | KB_TOP_K=%d | KB_USE_LLM_RANK=%s | 文件=%s",
+    API_BASE, AUTO_EXPERIENCE, KB_TOP_K, KB_USE_LLM_RANK, __file__,
+)
 
 def _headers() -> dict[str, str]:
     headers = {"Content-Type": "application/json"}
@@ -137,6 +172,10 @@ async def solve_math_problem(
       solve_log:        中间日志（已截断）。
     """
     # --- Knowledge base auto-injection ---
+    logger.info(
+        "MCP 工具 solve_math_problem 调用 | 平台=%s | 模型=%s | 题干长度=%d | 校验=%s | 思维链=%s",
+        solve_platform, solve_model, len(text_input or ""), verify, thinking,
+    )
     effective_prompt = prompt or ""
     effective_example = example or ""
     kb_meta: dict[str, Any] = {}
@@ -146,7 +185,12 @@ async def solve_math_problem(
             effective_prompt = merge_prompt(effective_prompt, inj.get("prompt", ""))
             effective_example = merge_prompt(effective_example, inj.get("example", ""))
             kb_meta = {"kb_matched_ids": inj.get("matched_ids", []), "kb_matched_count": inj.get("matched_count", 0)}
-        except Exception:
+            logger.info(
+                "经验自动注入完成 | 命中=%d | ids=%s",
+                kb_meta["kb_matched_count"], kb_meta["kb_matched_ids"],
+            )
+        except Exception as exc:
+            logger.warning("经验自动注入失败，已忽略 | 错误=%s", exc)
             pass  # knowledge base failure must not block solving
 
     payload: dict[str, Any] = {
@@ -171,6 +215,11 @@ async def solve_math_problem(
 
     try:
         async with httpx.AsyncClient(timeout=SOLVE_TIMEOUT) as client:
+            logger.info(
+                "向后端发起解题请求 | URL=%s/api/solve_problem | 超时=%.0fs, 输入: %s",
+                API_BASE, SOLVE_TIMEOUT,
+                json.dumps(payload, ensure_ascii=False)
+            )
             resp = await client.post(
                 f"{API_BASE}/api/solve_problem",
                 json=payload,
@@ -179,14 +228,24 @@ async def solve_math_problem(
             resp.raise_for_status()
             data = resp.json()
     except httpx.HTTPStatusError as e:
+        logger.warning(
+            "解题后端返回 HTTP 错误 | 状态码=%d | 详情=%s",
+            e.response.status_code, _truncate(e.response.text, 300),
+        )
         return {
             "ok": False,
             "error": f"HTTP {e.response.status_code}",
             "detail": _truncate(e.response.text, 1000),
         }
     except httpx.HTTPError as e:
+        logger.warning("解题后端请求失败 | 错误=%s", e)
         return {"ok": False, "error": "request_failed", "detail": str(e)}
 
+    logger.info(
+        "解题后端返回 | status=%s | progress=%s | verify_round=%s | cost_time=%s",
+        data.get("status"), data.get("progress"),
+        data.get("verify_round"), data.get("cost_time"),
+    )
     return {
         "ok": True,
         "status": data.get("status"),
@@ -241,6 +300,10 @@ async def verify_analysis(
         "verify_model": verify_model,
     }
 
+    logger.info(
+        "MCP 工具 verify_analysis 调用 | 平台=%s | 模型=%s | 题干长度=%d | 解析长度=%d",
+        verify_platform, verify_model, len(stem_text or ""), len(analysis or ""),
+    )
     try:
         async with httpx.AsyncClient(timeout=VERIFY_TIMEOUT) as client:
             resp = await client.post(
@@ -251,14 +314,25 @@ async def verify_analysis(
             resp.raise_for_status()
             data = resp.json()
     except httpx.HTTPStatusError as e:
+        logger.warning(
+            "校验后端返回 HTTP 错误 | 状态码=%d | 详情=%s",
+            e.response.status_code, _truncate(e.response.text, 300),
+        )
         return {
             "ok": False,
             "error": f"HTTP {e.response.status_code}",
             "detail": _truncate(e.response.text, 1000),
         }
     except httpx.HTTPError as e:
+        logger.warning("校验后端请求失败 | 错误=%s", e)
         return {"ok": False, "error": "request_failed", "detail": str(e)}
 
+    logger.info(
+        "校验后端返回 | has_error=%s | 步骤数=%d | 费用=%s",
+        data.get("has_error", False),
+        len(data.get("verify_results") or []),
+        data.get("cost", 0.0),
+    )
     return {
         "ok": True,
         "has_error": data.get("has_error", False),
@@ -270,9 +344,11 @@ async def verify_analysis(
 @mcp.tool()
 async def ping() -> dict:
     """检查解题/校验后端是否可达，返回 HTTP 状态码与简短回包。"""
+    logger.info("MCP 工具 ping 调用 | URL=%s/health", API_BASE)
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(f"{API_BASE}/health", headers=_headers())
+        logger.info("ping 完成 | 状态码=%d", resp.status_code)
         return {
             "ok": resp.status_code < 500,
             "status_code": resp.status_code,
@@ -280,6 +356,7 @@ async def ping() -> dict:
             "api_base": API_BASE,
         }
     except httpx.HTTPError as e:
+        logger.warning("ping 失败 | 错误=%s", e)
         return {"ok": False, "error": str(e), "api_base": API_BASE}
 
 
@@ -305,11 +382,21 @@ async def retrieve_experiences(problem: str, top_k: int = 3) -> dict:
       example:        可直接拼接到 solve_math_problem 的 example 文本。
     """
     if not _KB_AVAILABLE:
+        logger.warning("MCP 工具 retrieve_experiences 调用但知识库不可用")
         return {"ok": False, "error": "knowledge_base_unavailable"}
+    logger.info(
+        "MCP 工具 retrieve_experiences 调用 | 题干长度=%d | top_k=%d",
+        len(problem or ""), top_k,
+    )
     try:
         inj = fetch_injection(problem, top_k=top_k, use_llm=KB_USE_LLM_RANK)
     except Exception as exc:
+        logger.warning("retrieve_experiences 异常 | 错误=%s", exc)
         return {"ok": False, "error": str(exc)}
+    logger.info(
+        "retrieve_experiences 完成 | 命中=%d | ids=%s",
+        inj.get("matched_count", 0), inj.get("matched_ids", []),
+    )
     return {
         "ok": True,
         "matched_count": inj.get("matched_count", 0),
