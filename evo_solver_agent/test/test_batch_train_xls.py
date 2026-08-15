@@ -152,11 +152,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="批量监督训练 evo_solver_agent")
     parser.add_argument(
         "--input", required=False, help="Excel 文件路径",
-        default=r"F:\lab\hw\train\imo_random_200.xlsx"
+        default=r"/home/gc/solve/hw/train/imo_random_200.xlsx"
     )
     parser.add_argument(
         "--output-dir", help="输出目录",
-        default=r"F:\lab\hw\train\train_results_0521",
+        default=r"/home/gc/solve/hw/train/train_results_imo_0521",
     )
     parser.add_argument(
         "--problem-col", help="题干列名", default="stem_cn",

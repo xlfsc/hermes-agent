@@ -19,7 +19,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_BASE_URL = "http://171.214.10.150:11600/v1/"
+DEFAULT_BASE_URL = "http://117.172.221.74:11600/v1/"
 DEFAULT_API_KEY = "mysecurekey123"
 DEFAULT_MODEL = "gemma4"
 

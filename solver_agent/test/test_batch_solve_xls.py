@@ -128,9 +128,9 @@ def run_batch(
 def main() -> None:
     sheet = 0
     # 输入Excel路径
-    input_path = r"/home/gc/solve/hw/hw_test_0206.xlsx"
+    input_path = r"/home/gc/solve/hw/2/2026-高考.xlsx"
     # 输出路径
-    output_dir = r"/home/gc/solve/hw/hermes_0429"
+    output_dir = r"/home/gc/solve/hw/2/hermes_agent_2026_0722"
     # 题干列名
     problem_col = '题干文本'
     # 子题干列名（可以为空）
