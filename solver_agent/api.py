@@ -14,7 +14,7 @@ from solver_agent.solver import solve
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Math Solver Agent", version="0.1.0")
-_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="solver")
+_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="solver")
 
 
 class SolveRequest(BaseModel):
