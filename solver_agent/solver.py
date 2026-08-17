@@ -23,6 +23,7 @@ os.environ.setdefault("HERMES_HOME", str(SOLVER_HOME))
 os.environ.setdefault("SOLVER_AGENT_SKILLS_DIR", str(SOLVER_SKILLS_DIR))
 os.environ.setdefault("HERMES_YOLO_MODE", "1")
 os.environ.setdefault("HERMES_ACCEPT_HOOKS", "1")
+os.environ.setdefault("HERMES_STREAM_STALE_TIMEOUT", "1200")
 
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))

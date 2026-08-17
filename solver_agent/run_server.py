@@ -35,8 +35,9 @@ def main() -> None:
     host = os.getenv("SOLVER_HOST", "0.0.0.0")
     port = int(os.getenv("SOLVER_PORT", "8765"))
     logger.info(
-        "启动 Solver 服务 | host=%s | port=%d | HERMES_HOME=%s",
-        host, port, os.environ.get("HERMES_HOME"),
+        f"启动 Solver 服务 | host={host} | port={port} | "
+        f"HERMES_HOME={os.environ.get('HERMES_HOME')} | "
+        f"stream_stale_timeout={os.environ.get('HERMES_STREAM_STALE_TIMEOUT')}s"
     )
     uvicorn.run(
         "solver_agent.api:app",
