@@ -90,9 +90,9 @@ KB_TOP_K = int(os.environ.get("SOLVER_KB_TOP_K", "3"))
 KB_USE_LLM_RANK = os.environ.get("SOLVER_KB_LLM_RANK", "1").lower() not in {"0", "false", "no", ""}
 
 PLATFORM_MODELS = {
-    "Qwen":     ["qwen3-235b-a22b"],
-    "DeepSeek": ["deepseek-v3.2"],
-    "Gemma":    ["gemma4"],
+    "Qwen":     ["qwen3.7-flash"],
+    "DeepSeek": ["deepseek-v4-flash"],
+
 }
 
 mcp = FastMCP("solver")
@@ -123,11 +123,11 @@ async def solve_math_problem(
     image_base64: Optional[str] = None,
     url_image: Optional[str] = None,
     solve_platform: str = "DeepSeek",
-    solve_model: str = "deepseek-v3.2",
+    solve_model: str = "deepseek-v4-flash",
     thinking: bool = True,
     verify: bool = False,
     verify_platform: str = "Qwen",
-    verify_model: str = "qwen3-235b-a22b",
+    verify_model: str = "qwen3.7-flash",
     verify_round: int = 5,
     question_type: str = "",
     prompt: str = "",
@@ -139,10 +139,10 @@ async def solve_math_problem(
     可选启用解析自动校验（verify=True 时启用），最多迭代 verify_round 轮。
 
     平台与模型必须匹配，可选组合：
-      - solve_platform=DeepSeek -> solve_model=deepseek-v3.2
-      - solve_platform=Qwen     -> solve_model=qwen3-235b-a22b
-      - solve_platform=Gemma    -> solve_model=gemma4
-    校验平台同理（Qwen / DeepSeek / Gemma / DouBao）。
+      - solve_platform=DeepSeek -> solve_model=deepseek-v4-flash
+      - solve_platform=Qwen     -> solve_model=qwen3.7-flash
+
+    校验平台同理（Qwen / DeepSeek）。
 
     参数:
       text_input:      题干文本，纯文字题目时填这里。
@@ -153,7 +153,7 @@ async def solve_math_problem(
       thinking:        是否开启思维链 thinking，默认开启。
       verify:          是否在解题后做自动校验并迭代修正，默认开启。
       verify_platform: 校验平台，默认 Qwen。
-      verify_model:    校验模型，默认 qwen3-235b-a22b。
+      verify_model:    校验模型，默认 qwen3.7-flash。
       verify_round:    最大校验轮数，默认 5。
       question_type:   题型（如 "选择题"、"解答题"），可空。
       prompt:          自定义解题 prompt，可空使用服务端默认。
@@ -266,7 +266,7 @@ async def verify_analysis(
     stem_text: str,
     analysis: str,
     verify_platform: str = "Qwen",
-    verify_model: str = "qwen3-235b-a22b",
+    verify_model: str = "qwen3.7-flash",
 ) -> dict:
     """
     对已有解析文本进行逐步骤校验，返回每一步的对错与反馈。
@@ -275,9 +275,9 @@ async def verify_analysis(
     各步骤推理是否正确的场景。
 
     平台与模型组合：
-      - verify_platform=Qwen     -> verify_model=qwen3-235b-a22b
-      - verify_platform=DeepSeek -> verify_model=deepseek-v3.2
-      - verify_platform=Gemma    -> verify_model=gemma4
+      - verify_platform=Qwen     -> verify_model=qwen3.7-flash
+      - verify_platform=DeepSeek -> verify_model=deepseek-v4-flash
+
 
     参数:
       stem_text:       题目题干。

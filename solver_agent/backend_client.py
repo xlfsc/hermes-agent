@@ -128,11 +128,11 @@ class BackendClient:
             image_base64: Optional[str] = None,
             url_image: Optional[str] = None,
             solve_platform: str = "DeepSeek",
-            solve_model: str = "deepseek-v3.2",
+            solve_model: str = "deepseek-v4-flash",
             thinking: bool = True,
             verify: bool = False,
             verify_platform: str = "Qwen",
-            verify_model: str = "qwen3-235b-a22b",
+            verify_model: str = "qwen3.7-flash",
             verify_round: int = 5,
             question_type: str = "",
             prompt: str = "",
@@ -167,7 +167,7 @@ class BackendClient:
             analysis: str,
             *,
             verify_platform: str = "Qwen",
-            verify_model: str = "qwen3-235b-a22b",
+            verify_model: str = "qwen3.7-flash",
     ) -> Dict[str, Any]:
         logger.info(
             "调用 verify_analysis | 平台=%s | 模型=%s | 题干长度=%d | 解析长度=%d",
