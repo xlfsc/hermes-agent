@@ -1,6 +1,6 @@
 ---
 name: multi-model-math-solving
-description: 自动并行调用不同大模型解答数学题，并利用逐步骤验证与交叉校验实现自我纠错，持续优化策略
+description: 自动并行调用不同大模型解答数学题，并利用逐步骤验证与交叉校验实现自我纠错
 ---
 
 # 多模型协同解题与验证流程
@@ -18,17 +18,17 @@ description: 自动并行调用不同大模型解答数学题，并利用逐步�
 - **必须在同一个 function_calls 块中同时发起两个 `mcp_solver_solve_math_problem` 调用**，实现真正的并行执行，禁止串行逐个调用。
 - 两个调用分别为：
   1. `mcp_solver_solve_math_problem(text_input=..., solve_platform="DeepSeek", solve_model="deepseek-v4-flash", thinking=false)`
-  2. `mcp_solver_solve_math_problem(text_input=..., solve_platform="Qwen", solve_model="qwen3.7-flash", thinking=false)`
+  2. `mcp_solver_solve_math_problem(text_input=..., solve_platform="Gemma", solve_model="gemma4", thinking=false)`
 - **禁止使用 delegate_task 串行调用**，直接在一个回合内并发发出两个 MCP 工具调用即可。
 - 等待所有调用返回后，进入第三步。
 
 - 工具名称：`mcp_solver_solve_math_problem`（MCP server `solver` 暴露的工具，注册时被加上 `mcp_solver_` 前缀）
 - 参数说明：
   - `text_input`：题目文本
-  - `solve_platform`：平台名，可选 `"DeepSeek"`、`"Qwen"`
+  - `solve_platform`：平台名，可选 `"DeepSeek"`、`"Gemma"`
   - `solve_model`：模型名，必须与平台匹配：
     - `DeepSeek` → `deepseek-v4-flash`
-    - `Qwen` → `qwen3.7-flash`
+    - `Gemma` → `gemma4`
   - `thinking`：`true` 或 `false`，是否开启深度思考
   - `prompt`：自定义解题提示词，可空使用服务端默认
 - **关键：两个调用必须放在同一个 function_calls 块中，利用底层并行执行，大幅缩短总耗时。**
@@ -75,14 +75,6 @@ description: 自动并行调用不同大模型解答数学题，并利用逐步�
   - 说明迭代修正了哪些关键错误
   - 如果最终为综合解答，说明各部分来源与融合依据
 
-### 第六步：沉淀经验（自我进化）
-- 在会话结束前，用 `/memory add` 记录：
-  - 题目类型、错误模式（如"对数换底时常量错位"）
-  - 高成功率模型组合（如"三角题 DeepSeek+Qwen 互补性强"）
-- 完成反思提示后，执行：
-  - `/compress` 清理上下文
-  - 询问："本次解题流程有哪些可优化之处？"并让 Agent 更新本 Skill 文件或记忆。
-
 ## 常见陷阱与经验
 
 ### 模型分歧时优先用数值验证
@@ -99,11 +91,11 @@ print(abs(val - target) < 1e-10)  # True/False 一目了然
 DeepSeek 在处理 `acosθ + bsinθ` 的辅助角变换时，容易把 `Rcos(θ-φ)` 误写为 `Rsin(θ+φ)`，导致后续数值计算全错。三角题中如果 DeepSeek 与其他模型分歧，优先怀疑其辅助角步骤。
 
 ## 可调参数
-- 初始并行解题平台列表：`["DeepSeek", "Qwen"]`
-- 验证平台：`Qwen`（`qwen3.7-flash`）
+- 初始并行解题平台列表：`["DeepSeek", "Gemma"]`
+- 验证平台：`Qwen`（`qwen3.7-flash`，专职校验，不参与解题）
 - 平台与模型组合（解题）：
   - `DeepSeek` → `deepseek-v4-flash`
-  - `Qwen` → `qwen3.7-flash`
+  - `Gemma` → `gemma4`
 - 最大迭代轮数：`3`
 - 验证模式：`qwen-only`（统一使用 Qwen 校验所有解答）
 - 最大并发工具调用数：`5`

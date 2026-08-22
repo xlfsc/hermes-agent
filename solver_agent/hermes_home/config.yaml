@@ -2,15 +2,15 @@
 # 由 solver_agent/solver.py 在导入 hermes 前设置 HERMES_HOME 指向本目录的父目录。
 
 model:
-  default: qwen3.7-flash
+  default: gemma4
   provider: custom
-  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  base_url: http://117.172.221.74:11600/v1/
 
 custom_providers:
-  - name: qwen_config
-    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-    api_key: "sk-dff0eaceca064a4681f9fd63a1727ff4"
-    model: qwen3.7-flash
+  - name: "172.168.80.17:3001"
+    base_url: http://117.172.221.74:11600/v1/
+    api_key: mysecurekey123
+    model: gemma4
 
 providers:
   custom:

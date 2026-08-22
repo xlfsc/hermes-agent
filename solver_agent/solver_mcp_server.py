@@ -86,13 +86,14 @@ SOLVE_TIMEOUT = float(os.environ.get("SOLVER_SOLVE_TIMEOUT", "600"))
 VERIFY_TIMEOUT = float(os.environ.get("SOLVER_VERIFY_TIMEOUT", "300"))
 
 AUTO_EXPERIENCE = os.environ.get("SOLVER_AUTO_EXPERIENCE", "1").lower() not in {"0", "false", "no", ""}
+AUTO_EXPERIENCE = False
 KB_TOP_K = int(os.environ.get("SOLVER_KB_TOP_K", "3"))
 KB_USE_LLM_RANK = os.environ.get("SOLVER_KB_LLM_RANK", "1").lower() not in {"0", "false", "no", ""}
 
 PLATFORM_MODELS = {
     "Qwen":     ["qwen3.7-flash"],
     "DeepSeek": ["deepseek-v4-flash"],
-
+    "Gemma":    ["gemma4"],
 }
 
 mcp = FastMCP("solver")
@@ -141,8 +142,8 @@ async def solve_math_problem(
     平台与模型必须匹配，可选组合：
       - solve_platform=DeepSeek -> solve_model=deepseek-v4-flash
       - solve_platform=Qwen     -> solve_model=qwen3.7-flash
-
-    校验平台同理（Qwen / DeepSeek）。
+      - solve_platform=Gemma    -> solve_model=gemma4
+    校验平台同理（Qwen / DeepSeek / Gemma / DouBao）。
 
     参数:
       text_input:      题干文本，纯文字题目时填这里。
@@ -277,7 +278,7 @@ async def verify_analysis(
     平台与模型组合：
       - verify_platform=Qwen     -> verify_model=qwen3.7-flash
       - verify_platform=DeepSeek -> verify_model=deepseek-v4-flash
-
+      - verify_platform=Gemma    -> verify_model=gemma4
 
     参数:
       stem_text:       题目题干。
