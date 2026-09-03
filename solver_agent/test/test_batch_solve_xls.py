@@ -100,6 +100,8 @@ def run_batch(
     tasks = []
     for idx, row in df.iterrows():
         idx += 2
+        if idx != 20:
+            continue
         problem = str(row[problem_col]).strip()
         if sub_stem_col:
             sub_stem = str(row[problem_col]).strip()
@@ -128,9 +130,9 @@ def run_batch(
 def main() -> None:
     sheet = 0
     # 输入Excel路径
-    input_path = r"/home/gc/solve/hw/2/2026-高考.xlsx"
+    input_path = r"F:\lab\hw\最终交付\解题\2026-全国一卷\2026-全国一卷.xlsx"
     # 输出路径
-    output_dir = r"/home/gc/solve/hw/2/hermes_agent_2026_0722"
+    output_dir = r"F:\lab\hw\最终交付\解题\2026-全国一卷\hermes_agent_2026_0826"
     # 题干列名
     problem_col = '题干文本'
     # 子题干列名（可以为空）

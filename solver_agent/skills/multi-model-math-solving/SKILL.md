@@ -17,8 +17,8 @@ description: 自动并行调用不同大模型解答数学题，并利用逐步�
 ### 第二步：并行调用不同模型解题
 - **必须在同一个 function_calls 块中同时发起两个 `mcp_solver_solve_math_problem` 调用**，实现真正的并行执行，禁止串行逐个调用。
 - 两个调用分别为：
-  1. `mcp_solver_solve_math_problem(text_input=..., solve_platform="DeepSeek", solve_model="deepseek-v4-flash", thinking=false)`
-  2. `mcp_solver_solve_math_problem(text_input=..., solve_platform="Gemma", solve_model="gemma4", thinking=false)`
+  1. `mcp_solver_solve_math_problem(text_input=..., solve_platform="DeepSeek", solve_model="deepseek-v4-flash", thinking=true)`
+  2. `mcp_solver_solve_math_problem(text_input=..., solve_platform="Gemma", solve_model="gemma4", thinking=true)`
 - **禁止使用 delegate_task 串行调用**，直接在一个回合内并发发出两个 MCP 工具调用即可。
 - 等待所有调用返回后，进入第三步。
 

@@ -21,6 +21,10 @@ TRACE_DIR = os.path.join(REPO_ROOT, "solver_agent", "traces")
 
 os.environ.setdefault("HERMES_HOME", str(SOLVER_HOME))
 os.environ.setdefault("SOLVER_AGENT_SKILLS_DIR", str(SOLVER_SKILLS_DIR))
+# Keep the bundled MCP configuration portable across platforms and virtual
+# environments.  The config is loaded after these variables are initialized.
+os.environ.setdefault("SOLVER_AGENT_PYTHON", sys.executable)
+os.environ.setdefault("SOLVER_AGENT_ROOT", str(REPO_ROOT))
 os.environ.setdefault("HERMES_YOLO_MODE", "1")
 os.environ.setdefault("HERMES_ACCEPT_HOOKS", "1")
 os.environ.setdefault("HERMES_STREAM_STALE_TIMEOUT", "1200")
